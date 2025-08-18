@@ -1,24 +1,11 @@
 #!/bin/bash
 # -*- coding: utf-8 -*-
 """
-实盘交易系统部署脚本
-用于在OSCent系统中部署和启动交易系统
-
-使用方法：
-1. 配置环境变量
-2. 运行: ./deploy.sh start|stop|restart|status
+CentOS7 交易系统部署脚本
+自动安装依赖、配置环境、启动服务
 """
 
-set -e
-
-# 配置变量
-PROJECT_NAME="xniu-trading"
-SERVICE_NAME="realtime-trading"
-PYTHON_PATH="/usr/bin/python3"
-PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LOG_DIR="$PROJECT_DIR/logs"
-PID_FILE="$PROJECT_DIR/$SERVICE_NAME.pid"
-LOCK_FILE="$PROJECT_DIR/$SERVICE_NAME.lock"
+set -e  # 遇到错误立即退出
 
 # 颜色定义
 RED='\033[0;31m'
@@ -29,310 +16,387 @@ NC='\033[0m' # No Color
 
 # 日志函数
 log_info() {
-    echo -e "${GREEN}[INFO]${NC} $(date '+%Y-%m-%d %H:%M:%S') - $1"
+    echo -e "${GREEN}[INFO]${NC} $1"
 }
 
 log_warn() {
-    echo -e "${YELLOW}[WARN]${NC} $(date '+%Y-%m-%d %H:%M:%S') - $1"
+    echo -e "${YELLOW}[WARN]${NC} $1"
 }
 
 log_error() {
-    echo -e "${RED}[ERROR]${NC} $(date '+%Y-%m-%d %H:%M:%S') - $1"
+    echo -e "${RED}[ERROR]${NC} $1"
 }
 
-log_debug() {
-    echo -e "${BLUE}[DEBUG]${NC} $(date '+%Y-%m-%d %H:%M:%S') - $1"
+log_step() {
+    echo -e "${BLUE}[STEP]${NC} $1"
 }
 
-# 检查环境
-check_environment() {
-    log_info "检查运行环境..."
-    
-    # 检查Python
-    if ! command -v $PYTHON_PATH &> /dev/null; then
-        log_error "Python3 未找到: $PYTHON_PATH"
+# 检查是否为root用户
+check_root() {
+    if [[ $EUID -ne 0 ]]; then
+        log_error "此脚本需要root权限运行"
         exit 1
     fi
+}
+
+# 检查系统版本
+check_system() {
+    log_step "检查系统版本..."
     
-    # 检查项目目录
-    if [ ! -d "$PROJECT_DIR" ]; then
-        log_error "项目目录不存在: $PROJECT_DIR"
-        exit 1
-    fi
-    
-    # 检查必需文件
-    required_files=("realtime_trading_system.py" "strategy.py" "feature_engineer.py" "config.py")
-    for file in "${required_files[@]}"; do
-        if [ ! -f "$PROJECT_DIR/$file" ]; then
-            log_error "必需文件不存在: $file"
-            exit 1
+    if [[ -f /etc/redhat-release ]]; then
+        OS_VERSION=$(cat /etc/redhat-release)
+        log_info "检测到系统: $OS_VERSION"
+        
+        if [[ $OS_VERSION == *"CentOS Linux release 7"* ]]; then
+            log_info "✅ CentOS 7 系统确认"
+        else
+            log_warn "⚠️ 未检测到CentOS 7，但继续安装"
         fi
-    done
-    
-    # 创建日志目录
-    mkdir -p "$LOG_DIR"
-    
-    # 检查环境变量
-    if [ -z "$BINANCE_API_KEY" ] || [ -z "$BINANCE_API_SECRET" ]; then
-        log_warn "Binance API 密钥未设置，将使用测试模式"
-    fi
-    
-    log_info "环境检查完成"
-}
-
-# 获取PID
-get_pid() {
-    if [ -f "$PID_FILE" ]; then
-        cat "$PID_FILE"
     else
-        echo ""
+        log_warn "⚠️ 无法确定系统版本，但继续安装"
     fi
 }
 
-# 检查服务状态
-is_running() {
-    local pid=$(get_pid)
-    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
-        return 0
+# 更新系统包
+update_system() {
+    log_step "更新系统包..."
+    
+    yum update -y
+    log_info "✅ 系统包更新完成"
+}
+
+# 安装基础依赖
+install_basic_deps() {
+    log_step "安装基础依赖..."
+    
+    # 安装EPEL仓库
+    yum install -y epel-release
+    
+    # 安装基础工具
+    yum install -y wget curl git vim htop tree
+    
+    # 安装开发工具
+    yum groupinstall -y "Development Tools"
+    
+    # 安装Python相关
+    yum install -y python3 python3-pip python3-devel
+    
+    # 安装系统库
+    yum install -y openssl-devel libffi-devel bzip2-devel
+    
+    log_info "✅ 基础依赖安装完成"
+}
+
+# 安装Python依赖
+install_python_deps() {
+    log_step "安装Python依赖..."
+    
+    # 升级pip
+    python3 -m pip install --upgrade pip
+    
+    # 安装Python包
+    pip3 install -r requirements.txt
+    
+    log_info "✅ Python依赖安装完成"
+}
+
+# 创建系统用户
+create_user() {
+    log_step "创建系统用户..."
+    
+    # 检查用户是否存在
+    if id "trading" &>/dev/null; then
+        log_info "用户 'trading' 已存在"
     else
-        return 1
+        # 创建用户和组
+        useradd -r -s /bin/bash -d /opt/trading trading
+        log_info "✅ 用户 'trading' 创建完成"
     fi
+    
+    # 创建目录
+    mkdir -p /opt/trading
+    chown -R trading:trading /opt/trading
+    
+    log_info "✅ 用户配置完成"
+}
+
+# 配置防火墙
+configure_firewall() {
+    log_step "配置防火墙..."
+    
+    # 检查firewalld状态
+    if systemctl is-active --quiet firewalld; then
+        # 开放必要端口
+        firewall-cmd --permanent --add-port=22/tcp
+        firewall-cmd --permanent --add-port=80/tcp
+        firewall-cmd --permanent --add-port=443/tcp
+        
+        # 重新加载防火墙
+        firewall-cmd --reload
+        log_info "✅ 防火墙配置完成"
+    else
+        log_warn "⚠️ firewalld未运行，跳过防火墙配置"
+    fi
+}
+
+# 配置SELinux
+configure_selinux() {
+    log_step "配置SELinux..."
+    
+    # 检查SELinux状态
+    if command -v sestatus &> /dev/null; then
+        SELINUX_STATUS=$(sestatus | grep "SELinux status" | awk '{print $3}')
+        
+        if [[ $SELINUX_STATUS == "enabled" ]]; then
+            log_warn "⚠️ SELinux已启用，建议设置为permissive模式"
+            log_info "运行以下命令设置SELinux: setenforce 0"
+        else
+            log_info "✅ SELinux已禁用"
+        fi
+    else
+        log_info "✅ SELinux未安装"
+    fi
+}
+
+# 配置系统限制
+configure_limits() {
+    log_step "配置系统限制..."
+    
+    # 创建limits配置文件
+    cat > /etc/security/limits.d/trading.conf << EOF
+# 交易系统用户限制
+trading soft nofile 65536
+trading hard nofile 65536
+trading soft nproc 4096
+trading hard nproc 4096
+EOF
+    
+    log_info "✅ 系统限制配置完成"
+}
+
+# 配置日志轮转
+configure_logrotate() {
+    log_step "配置日志轮转..."
+    
+    # 创建logrotate配置
+    cat > /etc/logrotate.d/trading << EOF
+/opt/trading/logs/*.log {
+    daily
+    missingok
+    rotate 30
+    compress
+    delaycompress
+    notifempty
+    create 644 trading trading
+    postrotate
+        systemctl reload trading-system
+    endscript
+}
+EOF
+    
+    log_info "✅ 日志轮转配置完成"
+}
+
+# 安装和配置服务
+install_service() {
+    log_step "安装系统服务..."
+    
+    # 复制项目文件到系统目录
+    cp -r . /opt/trading/
+    chown -R trading:trading /opt/trading
+    
+    # 切换到项目目录
+    cd /opt/trading
+    
+    # 安装服务
+    python3 trading_service.py install --service-name trading-system
+    
+    log_info "✅ 系统服务安装完成"
+}
+
+# 配置环境变量
+configure_environment() {
+    log_step "配置环境变量..."
+    
+    # 创建环境变量文件
+    cat > /opt/trading/.env.example << EOF
+# 交易所API配置
+BINANCE_API_KEY=your_binance_api_key
+BINANCE_SECRET=your_binance_secret
+
+# Telegram通知配置
+TELEGRAM_BOT_TOKEN=your_telegram_bot_token
+TELEGRAM_CHAT_ID=your_telegram_chat_id
+
+# 系统配置
+TRADING_ENABLED=true
+SANDBOX_MODE=true
+LOG_LEVEL=INFO
+EOF
+    
+    log_info "✅ 环境变量配置完成"
+    log_warn "⚠️ 请编辑 /opt/trading/.env 文件配置您的API密钥"
 }
 
 # 启动服务
 start_service() {
-    log_info "启动 $SERVICE_NAME 服务..."
-    
-    if is_running; then
-        log_warn "服务已在运行中 (PID: $(get_pid))"
-        return 0
-    fi
-    
-    # 检查锁文件
-    if [ -f "$LOCK_FILE" ]; then
-        log_error "锁文件存在，可能上次启动异常退出"
-        rm -f "$LOCK_FILE"
-    fi
-    
-    # 创建锁文件
-    touch "$LOCK_FILE"
+    log_step "启动交易系统服务..."
     
     # 启动服务
-    cd "$PROJECT_DIR"
-    nohup $PYTHON_PATH oscent_service.py > "$LOG_DIR/service.log" 2>&1 &
-    local pid=$!
+    systemctl start trading-system
+    systemctl enable trading-system
     
-    # 保存PID
-    echo $pid > "$PID_FILE"
-    
-    # 等待服务启动
+    # 检查服务状态
     sleep 3
-    
-    # 检查是否启动成功
-    if is_running; then
-        log_info "服务启动成功 (PID: $pid)"
-        rm -f "$LOCK_FILE"
-        return 0
+    if systemctl is-active --quiet trading-system; then
+        log_info "✅ 交易系统服务启动成功"
     else
-        log_error "服务启动失败"
-        rm -f "$PID_FILE" "$LOCK_FILE"
-        return 1
+        log_error "❌ 交易系统服务启动失败"
+        systemctl status trading-system
+        exit 1
     fi
 }
 
-# 停止服务
-stop_service() {
-    log_info "停止 $SERVICE_NAME 服务..."
+# 安装监控服务
+install_monitor_service() {
+    log_step "安装监控服务..."
     
-    if ! is_running; then
-        log_warn "服务未运行"
-        return 0
-    fi
+    # 创建监控服务文件
+    cat > /etc/systemd/system/trading-monitor.service << EOF
+[Unit]
+Description=Trading System Monitor
+After=trading-system.service
+
+[Service]
+Type=simple
+User=trading
+WorkingDirectory=/opt/trading
+ExecStart=/usr/bin/python3 /opt/trading/monitor.py monitor --interval 60
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+EOF
     
-    local pid=$(get_pid)
+    # 重新加载systemd
+    systemctl daemon-reload
     
-    # 发送SIGTERM信号
-    kill -TERM "$pid" 2>/dev/null
+    # 启用监控服务
+    systemctl enable trading-monitor
     
-    # 等待进程结束
-    local count=0
-    while [ $count -lt 30 ] && is_running; do
-        sleep 1
-        count=$((count + 1))
-    done
-    
-    # 如果进程仍在运行，强制杀死
-    if is_running; then
-        log_warn "强制停止服务..."
-        kill -KILL "$pid" 2>/dev/null
-        sleep 2
-    fi
-    
-    # 清理文件
-    rm -f "$PID_FILE" "$LOCK_FILE"
-    
-    if ! is_running; then
-        log_info "服务已停止"
-        return 0
-    else
-        log_error "停止服务失败"
-        return 1
-    fi
+    log_info "✅ 监控服务安装完成"
 }
 
-# 重启服务
-restart_service() {
-    log_info "重启 $SERVICE_NAME 服务..."
-    stop_service
-    sleep 2
-    start_service
+# 创建管理脚本
+create_management_scripts() {
+    log_step "创建管理脚本..."
+    
+    # 创建启动脚本
+    cat > /opt/trading/start.sh << 'EOF'
+#!/bin/bash
+systemctl start trading-system
+systemctl start trading-monitor
+echo "交易系统已启动"
+EOF
+    
+    # 创建停止脚本
+    cat > /opt/trading/stop.sh << 'EOF'
+#!/bin/bash
+systemctl stop trading-monitor
+systemctl stop trading-system
+echo "交易系统已停止"
+EOF
+    
+    # 创建状态检查脚本
+    cat > /opt/trading/status.sh << 'EOF'
+#!/bin/bash
+echo "=== 交易系统状态 ==="
+systemctl status trading-system --no-pager
+echo ""
+echo "=== 监控服务状态 ==="
+systemctl status trading-monitor --no-pager
+echo ""
+echo "=== 系统健康检查 ==="
+python3 /opt/trading/monitor.py health-check
+EOF
+    
+    # 创建日志查看脚本
+    cat > /opt/trading/logs.sh << 'EOF'
+#!/bin/bash
+echo "=== 交易系统日志 ==="
+journalctl -u trading-system -n 50 --no-pager
+echo ""
+echo "=== 监控服务日志 ==="
+journalctl -u trading-monitor -n 20 --no-pager
+EOF
+    
+    # 设置执行权限
+    chmod +x /opt/trading/*.sh
+    chown trading:trading /opt/trading/*.sh
+    
+    log_info "✅ 管理脚本创建完成"
 }
 
-# 查看服务状态
-show_status() {
-    log_info "查看 $SERVICE_NAME 服务状态..."
-    
-    if is_running; then
-        local pid=$(get_pid)
-        log_info "服务运行中 (PID: $pid)"
-        
-        # 显示进程信息
-        if command -v ps &> /dev/null; then
-            ps -p "$pid" -o pid,ppid,cmd,etime,pcpu,pmem 2>/dev/null || true
-        fi
-        
-        # 显示日志文件大小
-        if [ -f "$LOG_DIR/service.log" ]; then
-            local log_size=$(du -h "$LOG_DIR/service.log" | cut -f1)
-            log_info "日志文件大小: $log_size"
-        fi
-        
-        return 0
-    else
-        log_warn "服务未运行"
-        return 1
-    fi
-}
-
-# 查看日志
-show_logs() {
-    log_info "查看服务日志..."
-    
-    if [ -f "$LOG_DIR/service.log" ]; then
-        tail -f "$LOG_DIR/service.log"
-    else
-        log_warn "日志文件不存在"
-    fi
-}
-
-# 清理日志
-clean_logs() {
-    log_info "清理日志文件..."
-    
-    if [ -d "$LOG_DIR" ]; then
-        find "$LOG_DIR" -name "*.log" -mtime +7 -delete
-        log_info "已清理7天前的日志文件"
-    fi
-}
-
-# 安装依赖
-install_dependencies() {
-    log_info "安装Python依赖..."
-    
-    if [ -f "$PROJECT_DIR/requirements.txt" ]; then
-        $PYTHON_PATH -m pip install -r "$PROJECT_DIR/requirements.txt"
-        log_info "依赖安装完成"
-    else
-        log_warn "requirements.txt 文件不存在"
-    fi
-}
-
-# 备份数据
-backup_data() {
-    log_info "备份交易数据..."
-    
-    local backup_dir="$PROJECT_DIR/backup/$(date '+%Y%m%d_%H%M%S')"
-    mkdir -p "$backup_dir"
-    
-    # 备份交易历史
-    if [ -f "$PROJECT_DIR/trade_history.json" ]; then
-        cp "$PROJECT_DIR/trade_history.json" "$backup_dir/"
-    fi
-    
-    # 备份配置文件
-    cp "$PROJECT_DIR/config.py" "$backup_dir/"
-    
-    # 备份日志
-    if [ -d "$LOG_DIR" ]; then
-        cp -r "$LOG_DIR" "$backup_dir/"
-    fi
-    
-    log_info "数据备份完成: $backup_dir"
-}
-
-# 显示帮助信息
-show_help() {
-    echo "实盘交易系统部署脚本"
+# 显示安装完成信息
+show_completion_info() {
     echo ""
-    echo "使用方法: $0 {start|stop|restart|status|logs|clean|install|backup|help}"
+    echo "=========================================="
+    echo "🎉 交易系统安装完成！"
+    echo "=========================================="
     echo ""
-    echo "命令说明:"
-    echo "  start    启动服务"
-    echo "  stop     停止服务"
-    echo "  restart  重启服务"
-    echo "  status   查看服务状态"
-    echo "  logs     查看实时日志"
-    echo "  clean    清理旧日志"
-    echo "  install  安装依赖"
-    echo "  backup   备份数据"
-    echo "  help     显示帮助信息"
+    echo "📁 安装目录: /opt/trading"
+    echo "👤 运行用户: trading"
     echo ""
-    echo "环境变量:"
-    echo "  BINANCE_API_KEY      Binance API密钥"
-    echo "  BINANCE_API_SECRET   Binance API密钥"
-    echo "  TELEGRAM_TOKEN       Telegram机器人令牌"
-    echo "  TELEGRAM_CHAT_ID     Telegram聊天ID"
+    echo "🔧 管理命令:"
+    echo "  启动系统: /opt/trading/start.sh"
+    echo "  停止系统: /opt/trading/stop.sh"
+    echo "  查看状态: /opt/trading/status.sh"
+    echo "  查看日志: /opt/trading/logs.sh"
+    echo ""
+    echo "📋 下一步操作:"
+    echo "1. 编辑 /opt/trading/.env 配置API密钥"
+    echo "2. 运行 /opt/trading/start.sh 启动系统"
+    echo "3. 运行 /opt/trading/status.sh 检查状态"
+    echo ""
+    echo "📊 监控地址:"
+    echo "  系统日志: journalctl -u trading-system -f"
+    echo "  监控日志: journalctl -u trading-monitor -f"
+    echo ""
+    echo "🔗 相关文件:"
+    echo "  配置文件: /opt/trading/config.py"
+    echo "  环境变量: /opt/trading/.env"
+    echo "  服务文件: /etc/systemd/system/trading-system.service"
+    echo ""
 }
 
 # 主函数
 main() {
-    case "$1" in
-        start)
-            check_environment
-            start_service
-            ;;
-        stop)
-            stop_service
-            ;;
-        restart)
-            check_environment
-            restart_service
-            ;;
-        status)
-            show_status
-            ;;
-        logs)
-            show_logs
-            ;;
-        clean)
-            clean_logs
-            ;;
-        install)
-            install_dependencies
-            ;;
-        backup)
-            backup_data
-            ;;
-        help|--help|-h)
-            show_help
-            ;;
-        *)
-            log_error "未知命令: $1"
-            show_help
-            exit 1
-            ;;
-    esac
+    echo "🚀 开始安装交易系统..."
+    echo ""
+    
+    # 检查root权限
+    check_root
+    
+    # 执行安装步骤
+    check_system
+    update_system
+    install_basic_deps
+    install_python_deps
+    create_user
+    configure_firewall
+    configure_selinux
+    configure_limits
+    configure_logrotate
+    install_service
+    configure_environment
+    install_monitor_service
+    create_management_scripts
+    start_service
+    
+    # 显示完成信息
+    show_completion_info
 }
 
-# 执行主函数
+# 运行主函数
 main "$@" 
