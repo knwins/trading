@@ -1,6 +1,6 @@
 # 实盘交易系统
 
-基于回测验证的SharpeOptimizedStrategy策略的实盘交易系统，支持在CentOS7上自动运行。
+基于SharpeOptimizedStrategy策略的实盘交易系统，支持在CentOS7上自动运行。
 
 ## 🚀 功能特性
 
@@ -76,8 +76,8 @@ sudo /opt/trading/status.sh
 
 ```
 xniu-trading/
-├── live_trading_system.py    # 实盘交易系统主程序
-├── trading_service.py        # 系统服务管理
+├── trading.py    # 实盘交易系统主程序
+├── service.py               # 系统服务管理
 ├── monitor.py               # 系统监控模块
 ├── strategy.py              # 交易策略实现
 ├── data_loader.py           # 数据加载器
@@ -120,25 +120,25 @@ python3 monitor.py health-check
 
 ```bash
 # 安装服务
-python3 trading_service.py install
+python3 service.py install
 
 # 卸载服务
-python3 trading_service.py uninstall
+python3 service.py uninstall
 
 # 启动服务
-python3 trading_service.py start
+python3 service.py start
 
 # 停止服务
-python3 trading_service.py stop
+python3 service.py stop
 
 # 重启服务
-python3 trading_service.py restart
+python3 service.py restart
 
 # 查看服务状态
-python3 trading_service.py status
+python3 service.py status
 
 # 查看服务日志
-python3 trading_service.py logs
+python3 service.py logs
 ```
 
 ## 📈 策略说明
@@ -291,7 +291,7 @@ journalctl -u trading-monitor -f
 export LOG_LEVEL=DEBUG
 
 # 运行调试模式
-python3 live_trading_system.py --debug
+python3 trading.py --debug
 ```
 
 ## 📞 技术支持
@@ -323,7 +323,7 @@ python3 live_trading_system.py --debug
 
 ## 📈 更新日志
 
-### v1.0.0 (2024-01-01)
+### v1.0.0 (2025-08-18)
 - 初始版本发布
 - 基础交易功能
 - 系统监控

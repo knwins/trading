@@ -209,7 +209,7 @@ install_service() {
     cd /opt/trading
     
     # 安装服务
-    python3 trading_service.py install --service-name trading-system
+    python3 service.py install --service-name trading-system
     
     log_info "✅ 系统服务安装完成"
 }

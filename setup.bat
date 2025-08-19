@@ -53,7 +53,7 @@ echo ==========================================
 echo.
 echo 📋 下一步操作：
 echo 1. 编辑 .env 文件配置API密钥
-echo 2. 运行 python live_trading_system.py 启动系统
+echo 2. 运行 python trading.py 启动系统
 echo 3. 运行 python monitor.py health-check 检查状态
 echo.
 echo 📊 监控命令：

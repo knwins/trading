@@ -24,7 +24,7 @@ class TradingServiceManager:
         self.service_file = f"/etc/systemd/system/{service_name}.service"
         self.working_dir = os.getcwd()
         self.python_path = sys.executable
-        self.main_script = os.path.join(self.working_dir, "live_trading_system.py")
+        self.main_script = os.path.join(self.working_dir, "trading.py")
         
         # 设置日志
         self._setup_logging()
@@ -213,7 +213,7 @@ WantedBy=multi-user.target
             
             # 检查必要文件
             required_files = [
-                "live_trading_system.py",
+                "trading.py",
                 "config.py",
                 "strategy.py",
                 "data_loader.py",

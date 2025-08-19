@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-实盘交易系统
+实盘交易系统 (trading.py)
 基于回测验证的SharpeOptimizedStrategy策略
 支持CentOS7自动运行
 """
