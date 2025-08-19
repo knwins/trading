@@ -25,8 +25,8 @@
 ### 1. 克隆项目
 
 ```bash
-git clone <repository-url>
-cd xniu-trading
+git clone https://github.com/knwins/trading.git
+cd trading
 ```
 
 ### 2. 运行安装脚本
