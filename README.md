@@ -71,7 +71,7 @@ trading/
 
 ```bash
 # 下载项目
-git clone <repository-url>
+git clone <https://github.com/knwins/trading.git>
 cd trading
 
 # 运行安装脚本
