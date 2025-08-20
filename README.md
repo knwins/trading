@@ -520,9 +520,10 @@ tail -f /opt/trading/logs/trading_signals_*.log
 
 ## 📞 联系方式
 
-- **项目维护者**: [Your Name]
-- **邮箱**: [your.email@example.com]
-- **GitHub**: [https://github.com/yourusername/trading]
+- **项目维护者**: [xniu.io]
+- **项目网址**: [www.xniu.io,https://x.com/xniu_io]
+- **邮箱**: [knwin@msn.com]
+- **GitHub**: [https://github.com/knwins/trading]
 
 ## 🙏 致谢
 

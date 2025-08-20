@@ -43,8 +43,7 @@ class TradingSystem:
     def __init__(self, mode='interactive'):
         """初始化交易系统"""
         self.mode = mode
-        self.running = False
-        self.paused = False
+        self.running = True  # 改为True，表示系统已启动
         self.start_time = datetime.now()
         
         # 加载用户配置
@@ -184,8 +183,6 @@ class TradingSystem:
         signal.signal(signal.SIGINT, self.signal_handler)
         signal.signal(signal.SIGTERM, self.signal_handler)
         
-        if hasattr(signal, 'SIGUSR1'):
-            signal.signal(signal.SIGUSR1, self.toggle_pause)
         if hasattr(signal, 'SIGUSR2'):
             signal.signal(signal.SIGUSR2, self.emergency_stop)
     
@@ -298,11 +295,7 @@ class TradingSystem:
             # 在服务模式下，直接停止系统
             self.stop()
     
-    def toggle_pause(self, signum, frame):
-        """切换暂停状态"""
-        self.paused = not self.paused
-        status = "暂停" if self.paused else "恢复"
-        self.logger.info(f"⏸️ 系统{status}")
+
     
     def emergency_stop(self, signum, frame):
         """紧急停止"""
@@ -641,7 +634,7 @@ class TradingSystem:
                 '最后信号': self.last_signal,
                 '交易次数': self.trade_count,
                 '系统状态': '运行中' if self.running else '已停止',
-                '暂停状态': '是' if self.paused else '否',
+        
                 '初始资金': f"{self.initial_capital:,.0f} USDT",
                 '当前资金': f"{self.current_capital:,.0f} USDT",
                 '可用资金': f"{self.available_capital:,.0f} USDT",
@@ -769,10 +762,6 @@ class TradingSystem:
         
         while self.running:
             try:
-                if self.paused:
-                    time.sleep(5)
-                    continue
-                
                 # 检查风险限制
                 if not self.check_risk_limits():
                     time.sleep(60)
@@ -870,11 +859,10 @@ class TradingSystem:
         print("")
         print("⚙️ 系统控制")
         print("   4. 系统配置")
-        print("   5. 暂停/恢复交易")
         print("")
         print("🔧 高级功能")
-        print("   6. 创建服务文件")
-        print("   7. API密钥配置")
+        print("   5. 创建服务文件")
+        print("   6. API密钥配置")
         print("")
         print("   0. 退出系统")
         print("="*50)
@@ -904,14 +892,10 @@ class TradingSystem:
                     # 从配置菜单返回后重新显示主菜单
                     self.show_main_menu()
                 elif choice == '5':
-                    self.toggle_trading()
-                    input("\n按回车键继续...")
-                    self.show_main_menu()
-                elif choice == '6':
                     self.create_service_file()
                     input("\n按回车键继续...")
                     self.show_main_menu()
-                elif choice == '7':
+                elif choice == '6':
                     self.config_api_keys()
                     input("\n按回车键继续...")
                     self.show_main_menu()
@@ -924,7 +908,7 @@ class TradingSystem:
                         self.show_main_menu()
                     
                 # 兼容旧的文字命令
-                elif choice.lower() in ['status', 'config', 'pause', 'resume', 'stop', 'help', 'quit', 'exit', 'history']:
+                elif choice.lower() in ['status', 'config', 'stop', 'help', 'quit', 'exit', 'history']:
                     command = choice.lower()
                     if command == 'status':
                         self.log_system_status(manual=True)
@@ -932,12 +916,6 @@ class TradingSystem:
                         self.show_trade_history()
                     elif command == 'config':
                         self.interactive_config()
-                    elif command == 'pause':
-                        self.paused = True
-                        print("⏸️ 交易已暂停")
-                    elif command == 'resume':
-                        self.paused = False
-                        print("▶️ 交易已恢复")
                     elif command == 'stop':
                         print("🛑 正在停止系统...")
                         self.stop()
@@ -953,7 +931,7 @@ class TradingSystem:
                             self.show_main_menu()
                     
                 else:
-                    print("❓ 无效选择，请输入 0-7")
+                    print("❓ 无效选择，请输入 0-6")
                     self.show_main_menu()
                     
             except KeyboardInterrupt:
@@ -981,14 +959,7 @@ class TradingSystem:
         
         self.logger.info("✅ 交易系统已停止")
     
-    def toggle_trading(self):
-        """切换交易状态（暂停/恢复）"""
-        if self.paused:
-            self.paused = False
-            print("▶️ 交易已恢复")
-        else:
-            self.paused = True
-            print("⏸️ 交易已暂停")
+
     
     def show_config_menu(self):
         """显示配置菜单"""
@@ -1535,7 +1506,6 @@ class TradingSystem:
         
         # 系统状态
         system_status = '运行中' if self.running else '已停止'
-        pause_status = '是' if self.paused else '否'
         
         # 交易所信息 - 如果没有传入，则重新获取
         if exchange_info is None:
@@ -1585,11 +1555,10 @@ class TradingSystem:
         # 系统状态区域
         print("\n⚙️ 系统状态")
         status_icon = "🟢" if system_status == '运行中' else "🔴"
-        pause_icon = "⏸️" if pause_status == '是' else "▶️"
         trading_mode = "真实交易" if self.real_trading else "模拟交易"
         mode_icon = "🔴" if self.real_trading else "🟡"
         print(f"  运行状态:   {status_icon} {system_status}")
-        print(f"  暂停状态:   {pause_icon} {pause_status}")
+
         print(f"  交易模式:   {mode_icon} {trading_mode}")
         print("="*60)
     
@@ -2288,7 +2257,7 @@ WantedBy=multi-user.target
             print(f"  今日交易: {self.daily_trades}/{self.max_daily_trades}")
             print(f"  当前仓位: {self.current_position}")
             print(f"  系统状态: {'运行中' if self.running else '已停止'}")
-            print(f"  暂停状态: {'是' if self.paused else '否'}")
+    
             
             # 性能建议
             print("\n💡 性能建议:")
