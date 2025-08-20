@@ -175,7 +175,7 @@ def main():
         # 执行特征工程
         from feature_engineer import FeatureEngineer
         feature_engineer = FeatureEngineer()
-        data = feature_engineer.add_features(data)
+        data = feature_engineer.generate_features(data)
         
         if data is None or data.empty:
             print("❌ 特征工程失败")

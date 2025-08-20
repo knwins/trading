@@ -1,9 +1,4 @@
 # -*- coding: utf-8 -*-
-"""
-量化交易策略配置文件
-精简版配置，删除冗余代码
-"""
-
 # ============================================================================
 # 基础配置参数
 # ============================================================================
@@ -14,6 +9,24 @@ TRADING_CONFIG = {
     'TIMEFRAME': '1h',
     'TIMEFRAME_DAY': '1d',
     'TESTTIME': '2025-06-02 14:00:00',
+    
+    # 资金管理配置
+    'CAPITAL_CONFIG': {
+        'INITIAL_CAPITAL': 10000,        # 初始资金 (USDT)
+        'POSITION_SIZE_PERCENT': 0.1,    # 每次开仓资金比例 (10%)
+        'MAX_POSITION_SIZE': 0.5,        # 最大仓位比例 (50%)
+        'MIN_POSITION_SIZE': 0.05,       # 最小仓位比例 (5%)
+        'LEVERAGE': 1,                   # 杠杆倍数 (期货交易)
+    },
+    
+    # 风险控制配置
+    'RISK_CONFIG': {
+        'MAX_DAILY_TRADES': 10,          # 每日最大交易次数
+        'MIN_TRADE_INTERVAL': 300,       # 最小交易间隔(秒)
+        'MAX_DAILY_LOSS': 0.05,          # 每日最大亏损比例 (5%)
+        'MAX_TOTAL_LOSS': 0.20,          # 总资金最大亏损比例 (20%)
+        'EMERGENCY_STOP_LOSS': 0.30,     # 紧急止损比例 (30%)
+    },
 }
 
 # 策略窗口参数配置
@@ -71,6 +84,47 @@ DEBUG_CONFIG = {
 }
 
 # ============================================================================
+# 交易所API配置
+# ============================================================================
+
+# Binance API配置
+BINANCE_API_CONFIG = {
+    # 主网配置
+    'MAINNET': {
+        'BASE_URL': 'https://fapi.binance.com',
+        'API_VERSION': 'v1',
+        'FUTURES_API_VERSION': 'v2',
+        'TIMEOUT': 10,
+        'RECV_WINDOW': 10000,
+    },
+    
+    # 测试网配置
+    'TESTNET': {
+        'BASE_URL': 'https://testnet.binancefuture.com',
+        'API_VERSION': 'v1',
+        'FUTURES_API_VERSION': 'v2',
+        'TIMEOUT': 10,
+        'RECV_WINDOW': 10000,
+    },
+    
+    # 现货API配置
+    'SPOT': {
+        'BASE_URL': 'https://api.binance.com',
+        'API_VERSION': 'v3',
+        'TIMEOUT': 10,
+        'RECV_WINDOW': 10000,
+    },
+    
+    # 通用配置
+    'COMMON': {
+        'DEFAULT_LEVERAGE': 10,
+        'DEFAULT_MARGIN_TYPE': 'ISOLATED',
+        'MAX_LEVERAGE': 125,
+        'MIN_ORDER_SIZE': 0.001,
+    }
+}
+
+# ============================================================================
 # 策略配置
 # ============================================================================
 
@@ -84,12 +138,13 @@ OPTIMIZED_STRATEGY_CONFIG = {
     
     # 信号方向配置
     'signal_direction': {
-        'long_threshold': 0.1,   #上行趋势评分阈值
-        'short_threshold':-0.1,  #下行趋势评分阈值
+        'long': 1,      # 多头信号
+        'short': -1,    # 空头信号
+        'neutral': 0    # 中性信号
     },
     
-    # 最终评分权重配置 (总和100%)
-    'final_score_weights': {
+    # 评分权重配置
+    'score_weights': {
         'signal_weight': 0.6,     # 指标评分权重 30%
         'trend_weight': 0.4,      # 趋势强度评分权重 40%
         'risk_weight': 0.00,       # 风险评分权重 20%

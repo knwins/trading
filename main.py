@@ -117,9 +117,8 @@ def setup_logging():
         )
         return None
 
-# 初始化日志
-log_file = setup_logging()
-logger = logging.getLogger(__name__)
+# 初始化日志（将在主函数中调用）
+logger = None
 
 # 设置中文字体支持
 plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'DejaVu Sans']
@@ -260,7 +259,7 @@ def load_and_process_data():
     
     try:
         feature_engineer = FeatureEngineer()
-        features = feature_engineer.add_features(historical_data)
+        features = feature_engineer.generate_features(historical_data)
         
         if features is None or len(features) == 0:
             error_msg = "特征工程失败 - 返回空数据"
@@ -404,7 +403,7 @@ def run_multi_timeframe_backtest(historical_data, strategies):
         
         # 使用环境变量中的统一窗口期参数
         feature_engineer = FeatureEngineer()
-        features = feature_engineer.add_features(historical_data)  # 使用默认环境变量设置
+        features = feature_engineer.generate_features(historical_data)  # 使用默认环境变量设置
         
         # 验证数据长度一致性
         if len(features) != len(historical_data):
@@ -921,7 +920,7 @@ def create_equity_curves_with_kline(all_results, kline_data=None, symbol=None):
                 try:
                     from feature_engineer import FeatureEngineer
                     feature_engineer = FeatureEngineer()
-                    kline_data_with_features = feature_engineer.add_features(kline_data)  # 使用环境变量默认设置
+                    kline_data_with_features = feature_engineer.generate_features(kline_data)  # 使用环境变量默认设置
                     if kline_data_with_features is not None:
                         kline_data = kline_data_with_features
                         print(f"✅ 已重新计算技术指标 (使用环境变量默认窗口期)")
@@ -1697,6 +1696,11 @@ def save_trade_logs(all_results, output_dir="logs"):
 def main():
     """主函数 - 回测所有策略，使用配置的时间级别，仅使用真实历史数据"""
     try:
+        # 初始化日志
+        global logger
+        log_file = setup_logging()
+        logger = logging.getLogger(__name__)
+        
         # 检查依赖包
         print("🔍 检查系统依赖...")
         try:

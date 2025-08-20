@@ -1,0 +1,31 @@
+[Unit]
+Description=Trading System Service
+After=network.target
+
+[Service]
+Type=simple
+User=trading
+Group=trading
+WorkingDirectory=/opt/trading
+ExecStart=/opt/trading/venv/bin/python /opt/trading/trading.py --mode service
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+# 环境变量
+Environment=PYTHONPATH=/opt/trading
+Environment=PYTHONUNBUFFERED=1
+
+# 资源限制
+LimitNOFILE=65536
+LimitNPROC=4096
+
+# 安全设置 (兼容旧版本 systemd)
+NoNewPrivileges=true
+PrivateTmp=true
+# ProtectSystem=strict  # 注释掉，旧版本可能不支持
+# ReadWritePaths=/opt/trading/logs  # 注释掉，旧版本不支持
+
+[Install]
+WantedBy=multi-user.target

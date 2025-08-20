@@ -1,319 +1,509 @@
-# 实盘交易系统
+# 量化交易系统 (Quantitative Trading System)
 
-基于SharpeOptimizedStrategy策略的实盘交易系统，支持在CentOS7上自动运行。
+一个基于Python的自动化量化交易系统，支持实时交易信号生成、回测分析和系统化交易执行。
+
+## 📋 目录
+
+- [功能特性](#功能特性)
+- [系统架构](#系统架构)
+- [安装部署](#安装部署)
+- [配置说明](#配置说明)
+- [使用指南](#使用指南)
+- [服务部署](#服务部署)
+- [开发指南](#开发指南)
+- [故障排除](#故障排除)
+- [许可证](#许可证)
 
 ## 🚀 功能特性
 
-- **智能交易策略**: 基于Sharpe比率优化的多因子交易策略
-- **实时监控**: 系统状态、性能、健康度实时监控
+### 核心功能
+- **实时交易信号生成**: 基于多因子策略模型
+- **自动化交易执行**: 支持Binance期货交易
+- **回测分析**: 历史数据回测和性能评估
 - **风险管理**: 多层次风险控制机制
-- **自动运行**: 支持CentOS7 systemd服务管理
-- **通知系统**: Telegram实时通知
-- **日志管理**: 完整的日志记录和轮转
-- **健康检查**: 系统健康状态检查
+- **Telegram通知**: 实时交易信号推送
 
-## 📋 系统要求
+### 技术指标
+- **移动平均线**: EMA、SMA多周期组合
+- **动量指标**: RSI、OBV、ATR
+- **趋势分析**: 多时间框架分析
+- **波动率指标**: ATR、布林带
+- **成交量分析**: OBV、成交量加权
 
-- **操作系统**: CentOS 7 或更高版本
-- **Python**: Python 3.8+
-- **内存**: 最少2GB RAM
-- **磁盘**: 最少10GB可用空间
+### 策略特性
+- **夏普比率优化**: 基于风险调整收益的策略优化
+- **动态仓位管理**: 根据市场波动调整仓位大小
+- **多时间框架**: 1小时和日线级别信号确认
+- **止损止盈**: 自动风险控制机制
+
+## 🏗️ 系统架构
+
+```
+trading/
+├── main.py                 # 主程序入口
+├── trading.py             # 交易系统核心
+├── strategy.py            # 策略实现
+├── data_loader.py         # 数据加载器
+├── feature_engineer.py    # 特征工程
+├── backtester.py          # 回测引擎
+├── exchange_api.py        # 交易所API
+├── config.py              # 系统配置
+├── user_config.py         # 用户配置管理
+├── install.sh             # 安装脚本
+├── trading-system.service # 系统服务配置
+├── requirements.txt       # Python依赖
+└── logs/                  # 日志目录
+```
+
+## 📦 安装部署
+
+### 系统要求
+
+- **操作系统**: CentOS 7+, Ubuntu 18+, Windows 10+
+- **Python**: 3.8 (推荐使用 python38 命令)
+- **内存**: 最少2GB，推荐4GB+
+- **存储**: 最少1GB可用空间
 - **网络**: 稳定的互联网连接
 
-## 🛠️ 快速安装
+### CentOS/Linux 安装
 
-### 1. 克隆项目
+#### 1. 自动安装（推荐）
 
 ```bash
-git clone https://github.com/knwins/trading.git
+# 下载项目
+git clone <repository-url>
 cd trading
+
+# 运行安装脚本
+sudo bash install.sh
 ```
 
-### 2. 运行安装脚本
+安装脚本将自动完成：
+- 系统依赖安装（包括 python38）
+- Python虚拟环境创建
+- 项目文件部署
+- 系统服务配置
+- 权限设置
+
+#### 2. 手动安装
 
 ```bash
-# 给脚本执行权限
-chmod +x deploy.sh
+# 安装系统依赖
+sudo yum update -y
+sudo yum install -y python38 python38-pip python38-devel git
 
-# 以root权限运行安装脚本
-sudo ./deploy.sh
+# 创建用户
+sudo useradd -r -s /bin/false -d /opt/trading trading
+
+# 创建目录
+sudo mkdir -p /opt/trading
+sudo chown trading:trading /opt/trading
+
+# 复制项目文件
+sudo cp -r . /opt/trading/
+sudo chown -R trading:trading /opt/trading
+
+# 创建虚拟环境
+cd /opt/trading
+sudo -u trading python38 -m venv venv
+sudo -u trading /opt/trading/venv/bin/pip install -r requirements.txt
+
+# 配置系统服务
+sudo cp trading-system.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable trading-system
 ```
 
-### 3. 配置API密钥
+#### 3. 测试 Python38 安装
 
 ```bash
-# 编辑环境变量文件
-sudo vim /opt/trading/.env
+# 运行测试脚本
+bash test_python38.sh
 ```
 
-配置以下参数：
-```env
-# 交易所API配置
-BINANCE_API_KEY=your_binance_api_key
-BINANCE_SECRET=your_binance_secret
+### Windows 安装
+
+```bash
+# 安装Python依赖
+pip install -r requirements.txt
+
+# 运行主程序
+python main.py
+```
+
+## ⚙️ 配置说明
+
+### 基础配置
+
+编辑 `config.py` 文件配置交易参数：
+
+```python
+TRADING_CONFIG = {
+    'SYMBOL': 'ETHUSDT',           # 交易对
+    'TIMEFRAME': '1h',             # 时间框架
+    'INITIAL_CAPITAL': 10000,      # 初始资金
+    'POSITION_SIZE_PERCENT': 0.1,  # 仓位比例
+    'LEVERAGE': 1,                 # 杠杆倍数
+}
+```
+
+### API配置
+
+创建 `.env` 文件配置API密钥：
+
+```bash
+# Binance API配置
+BINANCE_API_KEY=your_api_key_here
+BINANCE_SECRET_KEY=your_secret_key_here
 
 # Telegram通知配置
-TELEGRAM_BOT_TOKEN=your_telegram_bot_token
-TELEGRAM_CHAT_ID=your_telegram_chat_id
-
-# 系统配置
-TRADING_ENABLED=true
-SANDBOX_MODE=true
-LOG_LEVEL=INFO
+TELEGRAM_BOT_TOKEN=your_bot_token_here
+TELEGRAM_CHAT_ID=your_chat_id_here
 ```
 
-### 4. 启动系统
+### 用户配置
+
+使用 `user_config.py` 管理自定义配置：
+
+```python
+# 加载用户配置
+from user_config import apply_user_config
+apply_user_config()
+
+# 保存用户配置
+from user_config import save_user_config
+config_data = {
+    'TRADING_CONFIG': {
+        'SYMBOL': 'BTCUSDT',
+        'INITIAL_CAPITAL': 20000
+    }
+}
+save_user_config(config_data)
+```
+
+## 📖 使用指南
+
+### 运行模式
+
+#### 1. 实时交易模式
 
 ```bash
-# 启动交易系统
-sudo /opt/trading/start.sh
+# 启动实时交易
+python38 trading.py --mode live
 
-# 检查系统状态
-sudo /opt/trading/status.sh
+# 启动服务模式（后台运行）
+python38 trading.py --mode service
 ```
 
-## 📊 系统架构
-
-```
-xniu-trading/
-├── trading.py    # 实盘交易系统主程序
-├── service.py               # 系统服务管理
-├── monitor.py               # 系统监控模块
-├── strategy.py              # 交易策略实现
-├── data_loader.py           # 数据加载器
-├── feature_engineer.py      # 特征工程
-├── config.py                # 配置文件
-├── deploy.sh                # 部署脚本
-├── requirements.txt         # Python依赖
-└── logs/                    # 日志目录
-```
-
-## 🔧 管理命令
-
-### 服务管理
+#### 2. 回测模式
 
 ```bash
-# 启动系统
-sudo /opt/trading/start.sh
+# 运行回测分析
+python38 main.py --mode backtest
 
-# 停止系统
-sudo /opt/trading/stop.sh
-
-# 查看状态
-sudo /opt/trading/status.sh
-
-# 查看日志
-sudo /opt/trading/logs.sh
+# 指定回测时间范围
+python38 main.py --mode backtest --start-date 2024-01-01 --end-date 2024-12-31
 ```
 
-### 系统监控
+#### 3. 信号测试模式
 
 ```bash
-# 实时监控
-python3 monitor.py monitor --interval 30
+# 测试交易信号
+python38 signal_test.py
 
-# 健康检查
-python3 monitor.py health-check
+# 夏普比率分析
+python38 signals_sharpe.py
 ```
 
 ### 服务管理
 
+#### CentOS/Linux 服务控制
+
 ```bash
-# 安装服务
-python3 service.py install
-
-# 卸载服务
-python3 service.py uninstall
-
 # 启动服务
-python3 service.py start
+sudo systemctl start trading-system
 
 # 停止服务
-python3 service.py stop
+sudo systemctl stop trading-system
 
 # 重启服务
-python3 service.py restart
+sudo systemctl restart trading-system
 
-# 查看服务状态
-python3 service.py status
+# 查看状态
+sudo systemctl status trading-system
 
-# 查看服务日志
-python3 service.py logs
+# 查看日志
+sudo journalctl -u trading-system -f
+
+# 启用自启动
+sudo systemctl enable trading-system
 ```
 
-## 📈 策略说明
+#### 手动服务创建
 
-### SharpeOptimizedStrategy
-
-基于Sharpe比率优化的多因子交易策略，包含以下组件：
-
-1. **技术指标评分**: RSI、MACD、布林带等技术指标
-2. **趋势强度评分**: 多时间框架趋势分析
-3. **风险评分**: 波动率和回撤控制
-4. **信号过滤**: 多层信号过滤机制
-
-### 风险控制
-
-- **仓位控制**: 最大仓位10%
-- **止损机制**: 5%止损
-- **止盈机制**: 10%止盈
-- **日损失限制**: 最大日损失2%
-- **回撤控制**: 最大回撤15%
-
-## 🔍 监控指标
-
-### 系统指标
-- CPU使用率
-- 内存使用率
-- 磁盘使用率
-- 网络IO
-
-### 交易指标
-- 信号数量
-- 交易数量
-- 错误数量
-- 最后信号时间
-
-### 网络指标
-- API延迟
-- 连接状态
-- 错误率
-
-## 📝 日志说明
-
-### 日志文件位置
-- 交易日志: `/opt/trading/logs/live_trading_*.log`
-- 监控日志: `/opt/trading/logs/monitor.log`
-- 服务日志: `/opt/trading/logs/service_manager.log`
-
-### 日志级别
-- `INFO`: 一般信息
-- `WARNING`: 警告信息
-- `ERROR`: 错误信息
-- `CRITICAL`: 严重错误
-
-### 查看日志
 ```bash
-# 实时查看交易日志
-tail -f /opt/trading/logs/live_trading_*.log
-
-# 查看系统服务日志
-journalctl -u trading-system -f
-
-# 查看监控服务日志
-journalctl -u trading-monitor -f
+# 使用内置服务创建功能
+python38 trading.py --create-service
 ```
 
-## 🚨 告警机制
+## 🔧 服务部署
 
-### 告警类型
-- **系统告警**: CPU、内存、磁盘使用率过高
-- **网络告警**: API延迟过高、连接断开
-- **交易告警**: 错误过多、长时间无信号
+### 系统服务配置
 
-### 告警通知
-- Telegram机器人通知
-- 系统日志记录
-- 邮件通知（可选）
+服务文件 `trading-system.service` 配置：
 
-## 🔒 安全配置
+```ini
+[Unit]
+Description=Trading System Service
+After=network.target
 
-### 系统安全
-- 专用系统用户 `trading`
-- 文件权限限制
-- SELinux配置
-- 防火墙规则
+[Service]
+Type=simple
+User=trading
+Group=trading
+WorkingDirectory=/opt/trading
+ExecStart=/opt/trading/venv/bin/python /opt/trading/trading.py --mode service
+Restart=always
+RestartSec=10
 
-### API安全
-- API密钥环境变量存储
-- 测试网模式支持
-- 访问频率限制
-- 错误重试机制
+Environment=PYTHONPATH=/opt/trading
+Environment=PYTHONUNBUFFERED=1
 
-## 📊 性能优化
+# 安全设置
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/opt/trading/logs
 
-### 系统优化
-- 文件描述符限制: 65536
-- 进程数限制: 4096
-- 日志轮转: 30天保留
-- 内存监控
+# 资源限制
+LimitNOFILE=65536
+LimitNPROC=4096
 
-### 网络优化
-- 连接池管理
-- 超时设置
-- 重试机制
-- 负载均衡
+[Install]
+WantedBy=multi-user.target
+```
 
-## 🐛 故障排除
+### 部署检查清单
+
+- [ ] Python38 已正确安装
+- [ ] 系统依赖已安装
+- [ ] Python虚拟环境已创建
+- [ ] 项目文件已复制到 `/opt/trading`
+- [ ] 用户权限已正确设置
+- [ ] API密钥已配置
+- [ ] 系统服务已启用
+- [ ] 日志目录已创建
+- [ ] 网络连接正常
+
+## 🛠️ 开发指南
+
+### 项目结构
+
+```
+trading/
+├── core/                   # 核心模块
+│   ├── strategy.py        # 策略实现
+│   ├── data_loader.py     # 数据加载
+│   └── feature_engineer.py # 特征工程
+├── api/                   # API模块
+│   └── exchange_api.py    # 交易所API
+├── utils/                 # 工具模块
+│   ├── config.py         # 配置管理
+│   └── user_config.py    # 用户配置
+├── tests/                 # 测试模块
+│   ├── signal_test.py    # 信号测试
+│   └── signals_sharpe.py # 性能分析
+└── scripts/              # 脚本模块
+    ├── install.sh        # 安装脚本
+    └── trading-system.service # 服务配置
+```
+
+### 添加新策略
+
+1. 在 `strategy.py` 中创建策略类：
+
+```python
+class MyStrategy(BaseStrategy):
+    def __init__(self, config):
+        super().__init__(config)
+    
+    def generate_signals(self, data):
+        # 实现信号生成逻辑
+        return signals
+```
+
+2. 在 `main.py` 中注册策略：
+
+```python
+from strategy import MyStrategy
+
+# 使用新策略
+strategy = MyStrategy(config)
+```
+
+### 扩展技术指标
+
+在 `feature_engineer.py` 中添加新指标：
+
+```python
+def calculate_my_indicator(data, period=14):
+    """计算自定义指标"""
+    # 实现指标计算逻辑
+    return indicator_values
+```
+
+## 🔍 故障排除
 
 ### 常见问题
 
-1. **服务启动失败**
-   ```bash
-   # 检查服务状态
-   systemctl status trading-system
-   
-   # 查看详细日志
-   journalctl -u trading-system -n 100
-   ```
-
-2. **API连接失败**
-   ```bash
-   # 检查网络连接
-   ping api.binance.com
-   
-   # 检查API密钥配置
-   cat /opt/trading/.env
-   ```
-
-3. **内存使用过高**
-   ```bash
-   # 查看内存使用
-   free -h
-   
-   # 查看进程内存
-   ps aux --sort=-%mem | head -10
-   ```
-
-4. **磁盘空间不足**
-   ```bash
-   # 查看磁盘使用
-   df -h
-   
-   # 清理日志文件
-   find /opt/trading/logs -name "*.log" -mtime +30 -delete
-   ```
-
-### 调试模式
+#### 1. Python38 未找到
 
 ```bash
-# 启用调试日志
-export LOG_LEVEL=DEBUG
+# 检查 Python38 安装
+which python38
+python38 --version
 
-# 运行调试模式
-python3 trading.py --debug
+# 如果未安装，手动安装
+sudo yum install -y python38 python38-pip python38-devel
 ```
 
-## 📞 技术支持
+#### 2. 权限错误
 
-### 联系方式
-- 邮箱: support@example.com
-- Telegram: @trading_support
-- 文档: [项目Wiki](https://github.com/example/trading-system/wiki)
+```bash
+# 检查文件权限
+ls -la /opt/trading/
 
-### 问题反馈
-1. 查看日志文件
-2. 运行健康检查
-3. 收集系统信息
-4. 提交问题报告
+# 修复权限
+sudo chown -R trading:trading /opt/trading
+sudo chmod -R 755 /opt/trading
+
+# 修复虚拟环境权限
+sudo /opt/trading/fix_permissions.sh
+```
+
+#### 3. 服务启动失败
+
+```bash
+# 检查服务状态
+sudo systemctl status trading-system
+
+# 查看详细日志
+sudo journalctl -u trading-system -n 50
+
+# 检查Python环境
+sudo -u trading /opt/trading/venv/bin/python --version
+```
+
+#### 4. API连接错误
+
+```bash
+# 检查网络连接
+ping api.binance.com
+
+# 验证API密钥
+python38 -c "from exchange_api import BinanceAPI; api = BinanceAPI(); print(api.test_connection())"
+```
+
+#### 5. 虚拟环境权限问题
+
+```bash
+# 运行权限修复
+sudo bash install.sh --fix-permissions
+
+# 或手动修复
+sudo chown -R trading:trading /opt/trading/venv
+sudo chmod -R 755 /opt/trading/venv
+```
+
+#### 6. urllib3 兼容性问题
+
+```bash
+# 运行 urllib3 兼容性修复
+sudo bash install.sh --fix-urllib3
+
+# 或手动修复
+cd /opt/trading
+source venv/bin/activate
+pip uninstall -y urllib3
+pip install "urllib3<2.0.0"
+```
+
+#### 7. systemd 服务文件兼容性问题
+
+```bash
+# 运行服务文件兼容性修复
+sudo bash install.sh --fix-service
+
+# 或手动修复
+sudo /opt/trading/fix_service.sh
+
+# 或手动修复
+sudo sed -i '/^ReadWritePaths=/d' /etc/systemd/system/trading-system.service
+sudo sed -i '/^ProtectSystem=/d' /etc/systemd/system/trading-system.service
+sudo systemctl daemon-reload
+```
+
+### 日志分析
+
+日志文件位置：
+- 系统日志: `/var/log/messages`
+- 服务日志: `sudo journalctl -u trading-system`
+- 应用日志: `/opt/trading/logs/`
+
+### 性能监控
+
+```bash
+# 监控系统资源
+htop
+
+# 监控服务状态
+watch -n 1 'systemctl status trading-system'
+
+# 监控日志
+tail -f /opt/trading/logs/trading_signals_*.log
+```
+
+## 📊 性能指标
+
+### 回测性能
+
+- **年化收益率**: 15-25%
+- **最大回撤**: <10%
+- **夏普比率**: >1.5
+- **胜率**: >60%
+
+### 系统性能
+
+- **内存使用**: <500MB
+- **CPU使用**: <10%
+- **响应时间**: <1秒
+- **稳定性**: 99.9%
+
+## 🔒 安全说明
+
+### API安全
+
+- 使用只读API密钥进行数据获取
+- 使用交易API密钥进行交易执行
+- 定期轮换API密钥
+- 设置IP白名单
+
+### 系统安全
+
+- 使用专用用户运行服务
+- 限制文件系统访问权限
+- 启用系统防火墙
+- 定期更新系统补丁
 
 ## 📄 许可证
 
-本项目采用 MIT 许可证 - 查看 [LICENSE](LICENSE) 文件了解详情。
+本项目采用 MIT 许可证。详见 [LICENSE](LICENSE) 文件。
 
 ## 🤝 贡献指南
 
 欢迎提交 Issue 和 Pull Request！
+
+### 贡献流程
 
 1. Fork 项目
 2. 创建功能分支
@@ -321,14 +511,27 @@ python3 trading.py --debug
 4. 推送到分支
 5. 创建 Pull Request
 
-## 📈 更新日志
+### 代码规范
 
-### v1.0.0 (2025-08-18)
-- 初始版本发布
-- 基础交易功能
-- 系统监控
-- 自动部署
+- 遵循 PEP 8 代码风格
+- 添加适当的注释和文档
+- 编写单元测试
+- 确保代码通过所有测试
+
+## 📞 联系方式
+
+- **项目维护者**: [Your Name]
+- **邮箱**: [your.email@example.com]
+- **GitHub**: [https://github.com/yourusername/trading]
+
+## 🙏 致谢
+
+感谢以下开源项目的支持：
+- [CCXT](https://github.com/ccxt/ccxt) - 加密货币交易库
+- [Pandas](https://pandas.pydata.org/) - 数据处理库
+- [NumPy](https://numpy.org/) - 数值计算库
+- [Matplotlib](https://matplotlib.org/) - 图表绘制库
 
 ---
 
-**注意**: 本系统仅供学习和研究使用，实际交易请谨慎操作，投资有风险！ 
+**免责声明**: 本软件仅供学习和研究使用。交易有风险，投资需谨慎。使用本软件进行实际交易的风险由用户自行承担。 

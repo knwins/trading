@@ -1,10 +1,5 @@
-﻿from calendar import c, day_name
-import signal
-from tkinter import W
-from matplotlib.patches import bbox_artist
-import numpy as np
+﻿import numpy as np
 import pandas as pd
-import requests
 
 import logging
 from datetime import datetime
@@ -93,7 +88,7 @@ class SignalFilter:
         self.data_loader = data_loader
          
     
-    def filter_signal(self, signal, features, current_index, verbose=False, trend_score=None, base_score=None):
+    def filter_signal(self, signal, features, current_index, verbose=False, trend_score=None, base_score=None, silent=False):
         """
         过滤交易信号
         
@@ -102,6 +97,7 @@ class SignalFilter:
             features: 特征数据
             current_index: 当前索引
             verbose: 是否输出详细信息
+            silent: 是否静默模式（不输出日志）
             
         Returns:
             tuple: (过滤后信号, 过滤原因)
@@ -989,7 +985,7 @@ class SharpeOptimizedStrategy:
         logger.info("风险管理状态重置完成")
 
     
-    def generate_signal_filter_status(self):
+    def generate_signals_filter_status(self):
         """
         获取信号过滤器状态
         
@@ -1025,7 +1021,7 @@ class SharpeOptimizedStrategy:
             direction = 0   
         return direction
     
-    def _calculate_signal(self, data, verbose=False):
+    def _calculate_signal(self, data, verbose=False, silent=False):
         """
         夏普优化策略 - 交易信号计算核心方法
         
@@ -1041,6 +1037,7 @@ class SharpeOptimizedStrategy:
         Args:
             data: 包含技术指标的历史数据
             verbose: 是否输出详细调试信息
+            silent: 是否静默模式（不输出日志）
             
         Returns:
             dict: 包含完整信号信息的字典
@@ -1127,9 +1124,11 @@ class SharpeOptimizedStrategy:
             time_str = str(data_time)
         
         if filtered_signal == 0:
-            logger.info(f"[{time_str}] 信号被过滤: 原始信号={original_signal}, 过滤原因={filter_reason}")
+            if not silent:
+                logger.info(f"[{time_str}] 信号被过滤: 原始信号={original_signal}, 过滤原因={filter_reason}")
         else:
-            logger.debug(f"[{time_str}] 信号通过过滤: 原始信号={original_signal}, 过滤原因={filter_reason}")
+            if not silent:
+                logger.debug(f"[{time_str}] 信号通过过滤: 原始信号={original_signal}, 过滤原因={filter_reason}")
         
         # 8.确定最终信号
         if filtered_signal > 0:
@@ -1801,7 +1800,7 @@ class SharpeOptimizedStrategy:
         # 使用SignalFilter进行信号过滤
         current_index = len(historical_data) - 1
         filtered_signal, filter_reason = self.signal_filter.filter_signal(
-            original_signal, historical_data, current_index, verbose=False
+            original_signal, historical_data, current_index, verbose=False, silent=silent
         )
         
         # 记录过滤器详细信息到日志
@@ -1814,16 +1813,20 @@ class SharpeOptimizedStrategy:
             time_str = str(data_time)
         
         if filtered_signal == 0:
-            logger.info(f"[{time_str}] 🚨 信号被过滤: 原始信号={original_signal}, 过滤原因={filter_reason}")
+            if not silent:
+                logger.info(f"[{time_str}] 🚨 信号被过滤: 原始信号={original_signal}, 过滤原因={filter_reason}")
         else:
-            logger.debug(f"[{time_str}] ✅ 信号通过过滤: 原始信号={original_signal}, 过滤原因={filter_reason}")
+            if not silent:
+                logger.debug(f"[{time_str}] ✅ 信号通过过滤: 原始信号={original_signal}, 过滤原因={filter_reason}")
         
         # 记录过滤结果
         signal_type = "多头" if original_signal == 1 else "空头"
         if filtered_signal == 0:
-            logger.debug(f"[{time_str}] 🚨 {signal_type}信号被过滤: {filter_reason}")
+            if not silent:
+                logger.debug(f"[{time_str}] 🚨 {signal_type}信号被过滤: {filter_reason}")
         else:
-            logger.debug(f"[{time_str}] ✅ {signal_type}信号通过过滤")
+            if not silent:
+                logger.debug(f"[{time_str}] ✅ {signal_type}信号通过过滤")
         
         # 构建过滤器状态信息
         filters_status = self._build_filter_status(current_data, historical_data, filter_reason)
@@ -1909,20 +1912,21 @@ class SharpeOptimizedStrategy:
     
     
 
-    def generate_signal(self, features, verbose=False):
+    def generate_signals(self, features, verbose=False, silent=False):
         """
         获取交易信号 - 适配回测系统的接口
         
         Args:
             features: 包含技术指标的DataFrame
             verbose: 是否输出详细信息
+            silent: 是否静默模式（不输出日志）
             
         Returns:
             dict: 包含信号信息的字典
         """
         try:
             # 调用内部的计算信号方法
-            signal_info = self._calculate_signal(features, verbose)
+            signal_info = self._calculate_signal(features, verbose, silent)
             
             if verbose:
                 # 简化输出，只显示关键信息

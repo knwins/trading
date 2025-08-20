@@ -1,4 +1,3 @@
-import math
 import numpy as np
 import pandas as pd
 from scipy.stats import linregress
@@ -1057,7 +1056,7 @@ class FeatureEngineer:
         
         return price_wma_distance, is_entangled, entanglement_intensity, should_filter
 
-    def add_features(self, klines, short_window=None, long_window=None, multi_tf_data=None, external_fear_greed=None, external_vix_fear=None):
+    def generate_features(self, klines, short_window=None, long_window=None, multi_tf_data=None, external_fear_greed=None, external_vix_fear=None, silent=False):
         """
         给 K 线数据添加技术指标特征
         
@@ -1144,7 +1143,7 @@ class FeatureEngineer:
         
 
         # 计算信号评分
-        weights = self.calculate_dynamic_weights(df,mode='dynamic')
+        weights = self.calculate_dynamic_weights(df, mode='dynamic', silent=silent)
         df['signal_score'] = (
             weights.get('adx', 0.0) * df.get('adx_signal', 0.0) +
             weights.get('ema', 0.0) * df.get('ema_signal', 0.0) +
@@ -1249,14 +1248,15 @@ class FeatureEngineer:
         final_length = len(df)
         removed_count = original_length - final_length
         
-        if removed_count > 0:
+        if removed_count > 0 and not silent:
             print(f"⚠️ 特征工程中删除了 {removed_count} 条包含NaN的数据")
             print(f"   原始数据: {original_length} 条")
             print(f"   处理后数据: {final_length} 条")
             print(f"   数据保留率: {final_length/original_length*100:.1f}%")
         
         if len(df) == 0:
-            print("⚠️ 警告：删除关键指标NaN后数据为空")
+            if not silent:
+                print("⚠️ 警告：删除关键指标NaN后数据为空")
             return None
         
         # ================================================
@@ -1279,7 +1279,8 @@ class FeatureEngineer:
         
         # 设置多时间级别数据标志
         df._multi_timeframe_data = None
-        print("🕐 多时间级别数据将在回测过程中实时获取")
+        if not silent:
+            print("🕐 多时间级别数据将在回测过程中实时获取")
         
         return df
     
@@ -1474,7 +1475,8 @@ class FeatureEngineer:
         
         return int(signal), float(sentiment_score)
  
-    def calculate_dynamic_weights(self, df: pd.DataFrame, mode: str = 'dynamic'):
+    def calculate_dynamic_weights(self, df: pd.DataFrame, mode: str = 'dynamic', silent: bool = False):
+        
         """
         根据市场状态动态计算技术指标权重
         
@@ -1543,11 +1545,12 @@ class FeatureEngineer:
         market_state = self._analyze_market_state(current_adx, current_rsi, current_volume_ratio, current_volatility)
         
         # 打印市场状态信息
-        print(f"🔍 市场状态分析:")
-        print(f"  ADX: {current_adx:.1f} -> 趋势强度: {market_state['trend_strength']}")
-        print(f"  RSI: {current_rsi:.1f} -> 状态: {market_state['rsi_state']}")
-        print(f"  成交量比率: {current_volume_ratio:.2f} -> 状态: {market_state['volume_state']}")
-        print(f"  波动率: {current_volatility:.4f} -> 状态: {market_state['volatility_state']}")
+        if not silent:
+            print(f"🔍 市场状态分析:")
+            print(f"  ADX: {current_adx:.1f} -> 趋势强度: {market_state['trend_strength']}")
+            print(f"  RSI: {current_rsi:.1f} -> 状态: {market_state['rsi_state']}")
+            print(f"  成交量比率: {current_volume_ratio:.2f} -> 状态: {market_state['volume_state']}")
+            print(f"  波动率: {current_volatility:.4f} -> 状态: {market_state['volatility_state']}")
         
         # 根据市场状态动态调整权重
         weights = self._adjust_weights_by_market_state(market_state, df)

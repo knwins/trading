@@ -10,7 +10,6 @@ import time
 import random
 from config import *
 import pytz  # 添加时区支持
-import json
 
 load_dotenv()  # 加载环境变量（仅用于敏感参数）
 
@@ -96,7 +95,7 @@ class TimezoneHandler:
         """
         return int(datetime.now(self.utc_tz).timestamp() * 1000)
     
-    def validate_time_range(self, start_timestamp, end_timestamp, max_days_back=365):
+    def validate_time_range(self, start_timestamp, end_timestamp, max_days_back=365, silent=False):
         """
         验证时间范围的合理性
         
@@ -112,7 +111,8 @@ class TimezoneHandler:
         
         # 检查是否包含未来时间
         if start_timestamp > current_timestamp or end_timestamp > current_timestamp:
-            print(f"⚠️ 检测到未来时间范围，调整为过去{max_days_back}天")
+            if not silent:
+                print(f"⚠️ 检测到未来时间范围，调整为过去{max_days_back}天")
             end_timestamp = current_timestamp
             start_timestamp = end_timestamp - (max_days_back * 24 * 60 * 60 * 1000)
         
@@ -245,11 +245,12 @@ class DataLoader:
     
 
     
-    def get_klines(self, start_date, end_date):
+    def get_klines(self, start_date, end_date, silent=False):
         """获取指定时间范围的 K 线数据（开盘价、收盘价等）"""
         
         try:
-            print(" 正在获取Binance合约真实历史数据...")
+            if not silent:
+                print(" 正在获取Binance合约真实历史数据...")
             
             # 使用统一的时区处理器解析日期
             start_datetime = self.tz_handler.parse_datetime(start_date, default_hour=0, default_minute=0, default_second=0)
@@ -270,13 +271,15 @@ class DataLoader:
             start_timestamp, end_timestamp = self.tz_handler.validate_time_range(
                 start_timestamp, 
                 end_timestamp, 
-                max_days_back=BACKTEST_CONFIG.get('BACKTEST_DAYS', 60)
+                max_days_back=BACKTEST_CONFIG.get('BACKTEST_DAYS', 60),
+                silent=silent
             )
             
             # 显示香港时间范围
             start_hk = self.tz_handler.from_utc_timestamp(start_timestamp)
             end_hk = self.tz_handler.from_utc_timestamp(end_timestamp)
-            print(f"📅 实际请求时间范围: {self.tz_handler.format_datetime_for_display(start_hk)} 至 {self.tz_handler.format_datetime_for_display(end_hk)} (香港时间)")
+            if not silent:
+                print(f"📅 实际请求时间范围: {self.tz_handler.format_datetime_for_display(start_hk)} 至 {self.tz_handler.format_datetime_for_display(end_hk)} (香港时间)")
             
             # 分页获取完整数据
             all_klines = []
@@ -293,7 +296,8 @@ class DataLoader:
                         "limit": 1000  # Binance API最大限制
                     }
                 
-                    print(f"  📡 正在获取第 {page_count + 1} 页合约数据...")
+                    if not silent:
+                        print(f"  📡 正在获取第 {page_count + 1} 页合约数据...")
                     klines_data = self._make_request("/klines", params)
                     
                     if klines_data is None:
@@ -301,7 +305,8 @@ class DataLoader:
                         raise ConnectionError("无法从合约API获取数据")
                     
                     if not klines_data:  # 没有更多数据
-                        print("  ✅ 数据获取完成")
+                        if not silent:
+                            print("  ✅ 数据获取完成")
                         break
                         
                     # 转换为标准格式并添加到总列表
@@ -322,7 +327,8 @@ class DataLoader:
                         break
                     
                     page_count += 1
-                    print(f"  ✅ 已获取 {len(all_klines)} 条数据...")
+                    if not silent:
+                        print(f"  ✅ 已获取 {len(all_klines)} 条数据...")
                     
                     # 添加短暂延迟避免API限制
                     time.sleep(0.1)
@@ -335,7 +341,8 @@ class DataLoader:
                     raise e
             
             if all_klines:
-                print(f" 成功获取 {len(all_klines)} 条合约历史数据")
+                if not silent:
+                    print(f" 成功获取 {len(all_klines)} 条合约历史数据")
                 
                 # 过滤数据，只保留到目标时间点的数据
                 if " " in end_date:  # 如果指定了具体时间
@@ -346,7 +353,7 @@ class DataLoader:
                         
                         # 过滤掉超过目标时间的数据
                         filtered_klines = [kline for kline in all_klines if kline[0] <= target_end_timestamp]
-                        if len(filtered_klines) != len(all_klines):
+                        if len(filtered_klines) != len(all_klines) and not silent:
                             print(f"  📊 过滤后保留 {len(filtered_klines)} 条数据 (目标时间: {self.tz_handler.format_datetime_for_display(target_end_time)} 香港时间)")
                         klines = filtered_klines
                     except Exception as e:
@@ -383,7 +390,7 @@ class DataLoader:
         df = df.set_index("datetime").drop(columns=["timestamp"])
         
         # 显示数据时间范围
-        if not df.empty:
+        if not df.empty and not silent:
             print(f"📊 数据时间范围: {df.index.min()} 至 {df.index.max()} (香港时间)")
         
         return df.astype(float)  # 确保数值类型正确

@@ -471,7 +471,7 @@ class Backtester:
             
             # ===== 获取交易信号 =====
             try:
-                signal_info = self.strategy.generate_signal(features.iloc[:i+1], verbose=False)
+                signal_info = self.strategy.generate_signals(features.iloc[:i+1], verbose=False)
                 signal = signal_info.get('signal', 0)  # 从字典中提取信号值
                 
                 # 检查回测模式冷却处理 - 风险控制：是否应该跳过交易
