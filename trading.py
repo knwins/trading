@@ -138,8 +138,7 @@ class TradingSystem:
             # 初始化真实交易API
             self.exchange_api = RealExchangeAPI(
                 api_key=api_key,
-                secret_key=secret_key,
-                testnet=False  # 使用主网
+                secret_key=secret_key
             )
             self.exchange_api.set_logger(self.logger)
             
@@ -250,7 +249,11 @@ class TradingSystem:
         """信号处理器"""
         import traceback
         self.logger.info(f"📡 收到信号 {signum}，正在停止系统...")
-        self.logger.info(f"📡 信号来源: {traceback.format_stack()[-3:]}")
+        
+        # 防止重复处理信号
+        if not self.running:
+            self.logger.info("📡 系统已在停止过程中，忽略重复信号")
+            return
         
         # 在交互模式下，提供用户选择
         if self.mode == 'interactive':
@@ -423,7 +426,9 @@ class TradingSystem:
                         else:
                             reason = "市场趋势不明确，观望"
                     
-                    notify_signal(signal_value, current_price, signal_score, reason)
+                    # 只有非观望信号才发送通知
+                    if signal_value != 0:
+                        notify_signal(signal_value, current_price, signal_score, reason)
                 except Exception as e:
                     if not silent:
                         self.logger.warning(f"Telegram信号通知发送失败: {e}")
@@ -459,7 +464,29 @@ class TradingSystem:
                 if self.real_trading and self.exchange_api:
                     # 真实交易
                     symbol = TRADING_CONFIG.get('SYMBOL', 'ETHUSDT')
-                    trade_amount = self.available_capital * position_size
+                    usdt_amount = self.available_capital * position_size
+                    
+                    # 获取当前价格来计算ETH数量
+                    try:
+                        current_price = market_data['close'].iloc[-1] if not market_data.empty else 0
+                        if current_price > 0:
+                            eth_amount = usdt_amount / current_price
+                        else:
+                            # 如果无法获取价格，使用默认价格
+                            eth_amount = usdt_amount / 3000  # 假设ETH价格为3000 USDT
+                            self.logger.warning(f"⚠️ 无法获取当前价格，使用默认价格3000 USDT计算ETH数量")
+                        
+                        # 控制ETH数量精度 - ETHUSDT的最小精度为0.001
+                        eth_amount = round(eth_amount, 3)
+                        
+                        # 确保数量不为0
+                        if eth_amount <= 0:
+                            self.logger.error(f"❌ 计算出的ETH数量过小: {eth_amount}")
+                            return
+                            
+                    except Exception as e:
+                        self.logger.error(f"❌ 计算ETH数量失败: {e}")
+                        return
                     
                     # 设置杠杆和保证金类型
                     leverage_result = self.exchange_api.set_leverage(symbol, self.leverage)
@@ -470,18 +497,18 @@ class TradingSystem:
                         self.logger.warning(f"杠杆设置警告: {error_msg}")
                     
                     # 执行买入订单
-                    result = self.exchange_api.place_order(symbol, 'buy', trade_amount)
+                    result = self.exchange_api.place_order(symbol, 'buy', eth_amount)
                     
                     if result['success']:
-                        self.logger.info(f"🟢 真实开多仓成功 - 订单ID: {result['order_id']}")
+                        self.logger.info(f"🟢 真实开多仓成功 - 订单ID: {result['order_id']}, ETH数量: {eth_amount:.4f}, USDT金额: {usdt_amount:.2f}")
                         self.current_position = 1
-                        self.available_capital -= trade_amount
-                        self.record_trade('LONG', trade_amount, signal_score)
+                        self.available_capital -= usdt_amount
+                        self.record_trade('LONG', usdt_amount, signal_score)
                         
                         # 发送Telegram通知
                         try:
                             current_price = market_data['close'].iloc[-1] if not market_data.empty else 0
-                            notify_trade('open', 'long', current_price, trade_amount)
+                            notify_trade('open', 'long', current_price, usdt_amount)
                         except Exception as e:
                             self.logger.warning(f"Telegram通知发送失败: {e}")
                     else:
@@ -511,7 +538,29 @@ class TradingSystem:
                 if self.real_trading and self.exchange_api:
                     # 真实交易
                     symbol = TRADING_CONFIG.get('SYMBOL', 'ETHUSDT')
-                    trade_amount = self.available_capital * position_size
+                    usdt_amount = self.available_capital * position_size
+                    
+                    # 获取当前价格来计算ETH数量
+                    try:
+                        current_price = market_data['close'].iloc[-1] if not market_data.empty else 0
+                        if current_price > 0:
+                            eth_amount = usdt_amount / current_price
+                        else:
+                            # 如果无法获取价格，使用默认价格
+                            eth_amount = usdt_amount / 3000  # 假设ETH价格为3000 USDT
+                            self.logger.warning(f"⚠️ 无法获取当前价格，使用默认价格3000 USDT计算ETH数量")
+                        
+                        # 控制ETH数量精度 - ETHUSDT的最小精度为0.001
+                        eth_amount = round(eth_amount, 3)
+                        
+                        # 确保数量不为0
+                        if eth_amount <= 0:
+                            self.logger.error(f"❌ 计算出的ETH数量过小: {eth_amount}")
+                            return
+                            
+                    except Exception as e:
+                        self.logger.error(f"❌ 计算ETH数量失败: {e}")
+                        return
                     
                     # 设置杠杆和保证金类型
                     leverage_result = self.exchange_api.set_leverage(symbol, self.leverage)
@@ -522,18 +571,18 @@ class TradingSystem:
                         self.logger.warning(f"杠杆设置警告: {error_msg}")
                     
                     # 执行卖出订单
-                    result = self.exchange_api.place_order(symbol, 'sell', trade_amount)
+                    result = self.exchange_api.place_order(symbol, 'sell', eth_amount)
                     
                     if result['success']:
-                        self.logger.info(f"🔴 真实开空仓成功 - 订单ID: {result['order_id']}")
+                        self.logger.info(f"🔴 真实开空仓成功 - 订单ID: {result['order_id']}, ETH数量: {eth_amount:.4f}, USDT金额: {usdt_amount:.2f}")
                         self.current_position = -1
-                        self.available_capital -= trade_amount
-                        self.record_trade('SHORT', trade_amount, signal_score)
+                        self.available_capital -= usdt_amount
+                        self.record_trade('SHORT', usdt_amount, signal_score)
                         
                         # 发送Telegram通知
                         try:
                             current_price = market_data['close'].iloc[-1] if not market_data.empty else 0
-                            notify_trade('open', 'short', current_price, trade_amount)
+                            notify_trade('open', 'short', current_price, usdt_amount)
                         except Exception as e:
                             self.logger.warning(f"Telegram通知发送失败: {e}")
                     else:
@@ -823,6 +872,10 @@ class TradingSystem:
             # 获取服务器时间
             server_time = self.get_server_time()
             
+            # 从配置中获取API URL
+            from config import BINANCE_API_CONFIG
+            api_url = f"{BINANCE_API_CONFIG['MAINNET']['BASE_URL']}/fapi/{BINANCE_API_CONFIG['MAINNET']['API_VERSION']}"
+            
             exchange_info = {
                 'exchange': 'Binance',
                 'contract_type': contract_type,
@@ -830,8 +883,7 @@ class TradingSystem:
                 'timeframe': timeframe,
                 'api_status': api_status,
                 'latency': latency,
-                'api_url': 'https://fapi.binance.com/fapi/v1',
-                'testnet': False,
+                'api_url': api_url,
                 'server_time': server_time
             }
             
@@ -844,14 +896,17 @@ class TradingSystem:
         except Exception as e:
             self.logger.error(f"❌ 获取交易所信息失败: {e}")
             # 简化异常处理，直接返回默认值
+            # 从配置中获取API URL
+            from config import BINANCE_API_CONFIG
+            api_url = f"{BINANCE_API_CONFIG['MAINNET']['BASE_URL']}/fapi/{BINANCE_API_CONFIG['MAINNET']['API_VERSION']}"
+            
             return {
                 'exchange': 'Binance',
                 'contract_type': '永续合约',
                 'symbol': 'ETHUSDT',
                 'api_status': '异常',
                 'latency': 'N/A',
-                'api_url': 'https://fapi.binance.com/fapi/v1',
-                'testnet': False,
+                'api_url': api_url,
                 'server_time': 'N/A'
             }
     
@@ -860,11 +915,15 @@ class TradingSystem:
         try:
             import time
             import requests
+            from config import BINANCE_API_CONFIG
             
             start_time = time.time()
             
+            # 从配置中获取API URL
+            api_url = f"{BINANCE_API_CONFIG['MAINNET']['BASE_URL']}/fapi/{BINANCE_API_CONFIG['MAINNET']['API_VERSION']}"
+            
             # 测试API连接
-            response = requests.get('https://fapi.binance.com/fapi/v1/ping', timeout=5)
+            response = requests.get(f'{api_url}/ping', timeout=5)
             
             end_time = time.time()
             latency = f"{(end_time - start_time) * 1000:.0f}ms"
@@ -887,7 +946,12 @@ class TradingSystem:
         """获取服务器时间"""
         try:
             import requests
-            response = requests.get('https://fapi.binance.com/fapi/v1/time', timeout=5)
+            from config import BINANCE_API_CONFIG
+            
+            # 从配置中获取API URL
+            api_url = f"{BINANCE_API_CONFIG['MAINNET']['BASE_URL']}/fapi/{BINANCE_API_CONFIG['MAINNET']['API_VERSION']}"
+            
+            response = requests.get(f'{api_url}/time', timeout=5)
             if response.status_code == 200:
                 server_time = response.json().get('serverTime', 0)
                 from datetime import datetime
@@ -975,15 +1039,16 @@ class TradingSystem:
         
         # 导入持续监控模块
         try:
-            from continuous_monitor import SignalMonitor
+            from tools.continuous_monitor import SignalMonitor
             monitor = SignalMonitor()
             self.logger.info("✅ 信号监控模块初始化完成")
         except Exception as e:
             self.logger.error(f"❌ 信号监控模块初始化失败: {e}")
+            self.stop()
             return
         
         # 设置监控间隔（秒）
-        monitor_interval = 60  # 每分钟检查一次
+        monitor_interval = 3600  # 每1小时检查一次，与DeepSeek缓存时间协调
         iteration = 0
         
         try:
@@ -995,24 +1060,35 @@ class TradingSystem:
                 self.logger.info(f"📡 第{iteration}次信号检查 - {current_time.strftime('%Y-%m-%d %H:%M:%S')}")
                 
                 # 获取当前信号
-                signal_info, current_data = monitor.get_current_signal()
-                
-                # 修复pandas Series布尔判断问题
-                if signal_info is not None and current_data is not None:
-                    # 记录信号信息
-                    self.log_signal_info(signal_info, current_data, iteration)
+                try:
+                    signal_info, current_data = monitor.get_current_signal()
                     
-                    # 检查是否需要执行交易
-                    self.check_and_execute_trade(signal_info, current_data)
-                else:
-                    self.logger.warning(f"⚠️ 第{iteration}次检查 - 无法获取信号数据")
+                    # 修复pandas Series布尔判断问题
+                    if signal_info is not None and current_data is not None:
+                        # 记录信号信息
+                        self.log_signal_info(signal_info, current_data, iteration)
+                        
+                        # 检查是否需要执行交易
+                        self.check_and_execute_trade(signal_info, current_data)
+                    else:
+                        self.logger.warning(f"⚠️ 第{iteration}次检查 - 无法获取信号数据")
+                except Exception as e:
+                    self.logger.error(f"❌ 第{iteration}次信号检查失败: {e}")
+                    import traceback
+                    self.logger.error(f"❌ 异常堆栈: {traceback.format_exc()}")
                 
                 # 每10次检查记录一次系统状态
                 if iteration % 10 == 0:
-                    self.log_system_status()
+                    try:
+                        self.log_system_status()
+                    except Exception as e:
+                        self.logger.error(f"❌ 记录系统状态失败: {e}")
                 
-                # 等待下次检查
-                time.sleep(monitor_interval)
+                # 等待下次检查，分段等待以便及时响应停止信号
+                for _ in range(monitor_interval):
+                    if not self.running:
+                        break
+                    time.sleep(1)
                 
         except KeyboardInterrupt:
             self.logger.info("📡 收到中断信号")
@@ -1038,7 +1114,12 @@ class TradingSystem:
                 time.sleep(0.1)
         except KeyboardInterrupt:
             self.logger.info("📡 收到中断信号")
+        except Exception as e:
+            self.logger.error(f"❌ 交互模式异常: {e}")
+            import traceback
+            self.logger.error(f"❌ 异常堆栈: {traceback.format_exc()}")
         finally:
+            self.logger.info("🛑 交互模式停止")
             self.stop()
     
     def show_main_menu(self):
@@ -1144,13 +1225,43 @@ class TradingSystem:
             return
         
         self.logger.info("🛑 正在停止交易系统...")
+        self.logger.info("📊 停止前线程状态:")
+        self.log_thread_status()
         self.running = False
         
-        # 等待线程结束
-        if hasattr(self, 'trading_thread'):
-            self.trading_thread.join(timeout=5)
-        if hasattr(self, 'heartbeat_thread'):
-            self.heartbeat_thread.join(timeout=5)
+        # 等待线程结束，增加超时时间并改进错误处理
+        try:
+            if hasattr(self, 'trading_thread') and self.trading_thread.is_alive():
+                self.logger.info("⏳ 等待交易线程结束...")
+                self.trading_thread.join(timeout=10)
+                if self.trading_thread.is_alive():
+                    self.logger.warning("⚠️ 交易线程未在超时时间内结束")
+                else:
+                    self.logger.info("✅ 交易线程已结束")
+        except Exception as e:
+            self.logger.error(f"❌ 等待交易线程时出错: {e}")
+        
+        try:
+            if hasattr(self, 'heartbeat_thread') and self.heartbeat_thread.is_alive():
+                self.logger.info("⏳ 等待心跳线程结束...")
+                self.heartbeat_thread.join(timeout=10)
+                if self.heartbeat_thread.is_alive():
+                    self.logger.warning("⚠️ 心跳线程未在超时时间内结束")
+                else:
+                    self.logger.info("✅ 心跳线程已结束")
+        except Exception as e:
+            self.logger.error(f"❌ 等待心跳线程时出错: {e}")
+        
+        try:
+            if hasattr(self, 'interactive_thread') and self.interactive_thread.is_alive():
+                self.logger.info("⏳ 等待交互线程结束...")
+                self.interactive_thread.join(timeout=5)
+                if self.interactive_thread.is_alive():
+                    self.logger.warning("⚠️ 交互线程未在超时时间内结束")
+                else:
+                    self.logger.info("✅ 交互线程已结束")
+        except Exception as e:
+            self.logger.error(f"❌ 等待交互线程时出错: {e}")
         
         # 发送系统停止通知
         try:
@@ -1837,12 +1948,10 @@ class TradingSystem:
                 
                 api_key = api_config.get('api_key', '')
                 secret_key = api_config.get('secret_key', '')
-                testnet = api_config.get('testnet', False)
                 timestamp = api_config.get('timestamp', '')
                 
                 print(f"API Key: {'*' * (len(api_key) - 8) + api_key[-8:] if api_key else '未设置'}")
                 print(f"Secret Key: {'*' * (len(secret_key) - 8) + secret_key[-8:] if secret_key else '未设置'}")
-                print(f"测试网模式: {'是' if testnet else '否'}")
                 print(f"配置时间: {timestamp}")
                 
                 if api_key and secret_key:
@@ -1904,7 +2013,6 @@ class TradingSystem:
             api_config = {
                 'api_key': api_key,
                 'secret_key': secret_key,
-                'testnet': False,
                 'timestamp': datetime.now().isoformat()
             }
             
@@ -1931,8 +2039,7 @@ class TradingSystem:
                 from core.exchange_api import RealExchangeAPI
                 self.exchange_api = RealExchangeAPI(
                     api_key=api_key,
-                    secret_key=secret_key,
-                    testnet=False
+                    secret_key=secret_key
                 )
                 self.exchange_api.set_logger(self.logger)
                 
@@ -2556,6 +2663,41 @@ WantedBy=multi-user.target
             print(f"❌ 重置配置失败: {e}")
             print("="*20)
 
+    def check_thread_status(self):
+        """检查线程状态"""
+        thread_status = {}
+        
+        if hasattr(self, 'trading_thread'):
+            thread_status['trading_thread'] = {
+                'alive': self.trading_thread.is_alive(),
+                'name': self.trading_thread.name,
+                'daemon': self.trading_thread.daemon
+            }
+        
+        if hasattr(self, 'heartbeat_thread'):
+            thread_status['heartbeat_thread'] = {
+                'alive': self.heartbeat_thread.is_alive(),
+                'name': self.heartbeat_thread.name,
+                'daemon': self.heartbeat_thread.daemon
+            }
+        
+        if hasattr(self, 'interactive_thread'):
+            thread_status['interactive_thread'] = {
+                'alive': self.interactive_thread.is_alive(),
+                'name': self.interactive_thread.name,
+                'daemon': self.interactive_thread.daemon
+            }
+        
+        return thread_status
+    
+    def log_thread_status(self):
+        """记录线程状态"""
+        thread_status = self.check_thread_status()
+        self.logger.info("📊 线程状态:")
+        for thread_name, status in thread_status.items():
+            alive_status = "🟢 运行中" if status['alive'] else "🔴 已停止"
+            self.logger.info(f"   {thread_name}: {alive_status} (守护线程: {status['daemon']})")
+
 
 def create_systemd_service():
     """创建 systemd 服务文件"""
@@ -2685,14 +2827,26 @@ def main():
             return
     
     # 创建并启动交易系统
+    trading_system = None
     try:
         trading_system = TradingSystem(mode=mode)
         trading_system.start()
     except KeyboardInterrupt:
         print("\n📡 收到中断信号")
+        if trading_system:
+            trading_system.stop()
     except Exception as e:
         print(f"❌ 系统启动失败: {e}")
+        import traceback
+        print(f"❌ 异常堆栈: {traceback.format_exc()}")
+        if trading_system:
+            trading_system.stop()
         sys.exit(1)
+    finally:
+        # 确保系统正确停止
+        if trading_system and trading_system.running:
+            print("🛑 正在停止系统...")
+            trading_system.stop()
 
 
 if __name__ == '__main__':

@@ -58,8 +58,8 @@ class DeepSeekSignalIntegrator:
             'strong_bearish': 0.3    # 强看跌阈值
         })
         
-        # 缓存管理
-        self.cache_timeout = self.config.get('cache_timeout', 300)  # 5分钟缓存
+        # 缓存管理 - 从配置文件读取
+        self.cache_timeout = self.config.get('cache_timeout', 3600)  # 默认1小时缓存
         self.last_analysis = None
         self.last_analysis_time = 0
     

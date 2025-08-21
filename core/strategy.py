@@ -394,10 +394,10 @@ class SignalFilter:
             elif signal == -1:  # 空头信号
                 # 空头过滤逻辑：trend_score > filter_short_trend_score 过滤，base_score > filter_short_base_score 过滤
                 if trend_score > filter_short_trend_score:
-                    return 0, f"空头趋势强度过高(趋势评分{trend_score:.3f} > {filter_short_trend_score})"
+                    return 0, f"空头趋势强度不足(趋势评分{trend_score:.3f} > {filter_short_trend_score})"
                 
                 if base_score > filter_short_base_score:
-                    return 0, f"空头基础评分过高(基础评分{base_score:.3f} > {filter_short_base_score})"
+                    return 0, f"空头基础评分不足(基础评分{base_score:.3f} > {filter_short_base_score})"
             
             return signal, "正常"
             

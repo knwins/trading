@@ -15,6 +15,8 @@ from typing import Dict, List, Optional, Any
 from datetime import datetime, timedelta
 import pandas as pd
 import numpy as np
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import TRADING_CONFIG, DEBUG_CONFIG
 
@@ -52,20 +54,96 @@ class DeepSeekAnalyzer:
         
         self.api_key = api_key
         self.base_url = base_url
-        self.session = requests.Session()
+        self.session = self._create_session()
         
-        # 只有在有有效API密钥时才设置认证头
-        if api_key != "dummy_key":
-            self.session.headers.update({
-                'Authorization': f'Bearer {api_key}',
-                'Content-Type': 'application/json'
-            })
+        # 缓存配置 - 从配置文件读取
+        try:
+            from config import OPTIMIZED_STRATEGY_CONFIG
+            self.cache_duration = OPTIMIZED_STRATEGY_CONFIG.get('cache_timeout', 3600)  # 默认1小时
+        except ImportError:
+            self.cache_duration = 3600  # 默认1小时
         
-        # 缓存配置
-        self.cache_duration = 60  # 缓存60秒
         self.last_analysis = None
         self.last_analysis_time = 0
         
+    def _create_session(self) -> requests.Session:
+        """
+        创建配置了重试机制和连接池的requests session
+        
+        Returns:
+            配置好的requests.Session对象
+        """
+        session = requests.Session()
+        
+        # 配置重试策略
+        retry_strategy = Retry(
+            total=3,  # 总重试次数
+            backoff_factor=1,  # 退避因子
+            status_forcelist=[429, 500, 502, 503, 504],  # 需要重试的HTTP状态码
+            allowed_methods=["HEAD", "GET", "POST", "PUT", "DELETE", "OPTIONS", "TRACE"]
+        )
+        
+        # 配置连接适配器
+        adapter = HTTPAdapter(
+            max_retries=retry_strategy,
+            pool_connections=10,  # 连接池大小
+            pool_maxsize=20,     # 最大连接数
+            pool_block=False     # 连接池满时不阻塞
+        )
+        
+        # 将适配器应用到http和https
+        session.mount("http://", adapter)
+        session.mount("https://", adapter)
+        
+        # 只有在有有效API密钥时才设置认证头
+        if self.api_key != "dummy_key":
+            session.headers.update({
+                'Authorization': f'Bearer {self.api_key}',
+                'Content-Type': 'application/json',
+                'User-Agent': 'TradingBot/1.0'
+            })
+        
+        return session
+    
+    def test_api_connection(self) -> bool:
+        """
+        测试DeepSeek API连接
+        
+        Returns:
+            True if connection successful, False otherwise
+        """
+        if self.api_key == "dummy_key":
+            logger.warning("API密钥未配置，无法测试连接")
+            return False
+            
+        try:
+            url = f"{self.base_url}/v1/models"
+            timeout_config = (5, 10)  # 较短的超时时间用于测试
+            
+            logger.info("正在测试DeepSeek API连接...")
+            response = self.session.get(url, timeout=timeout_config)
+            response.raise_for_status()
+            
+            logger.info("DeepSeek API连接测试成功")
+            return True
+            
+        except requests.exceptions.Timeout:
+            logger.error("DeepSeek API连接测试超时")
+            return False
+        except requests.exceptions.ConnectionError:
+            logger.error("DeepSeek API连接测试失败 - 网络连接问题")
+            return False
+        except requests.exceptions.HTTPError as e:
+            if hasattr(e.response, 'status_code'):
+                if e.response.status_code == 401:
+                    logger.error("DeepSeek API连接测试失败 - API密钥无效")
+                else:
+                    logger.error(f"DeepSeek API连接测试失败 - HTTP {e.response.status_code}")
+            return False
+        except Exception as e:
+            logger.error(f"DeepSeek API连接测试失败: {e}")
+            return False
+    
     def get_ethusdt_data(self, timeframe: str = '1h', limit: int = 100) -> Optional[pd.DataFrame]:
         """
         获取ETHUSDT的K线数据
@@ -913,12 +991,39 @@ class DeepSeekAnalyzer:
                 "max_tokens": 2000
             }
             
-            response = self.session.post(url, json=payload, timeout=30)
+            # 使用更长的超时时间和连接超时
+            timeout_config = (10, 60)  # (连接超时, 读取超时)
+            
+            logger.info(f"正在调用DeepSeek API: {url}")
+            response = self.session.post(url, json=payload, timeout=timeout_config)
             response.raise_for_status()
             
             result = response.json()
+            logger.info("DeepSeek API调用成功")
             return result['choices'][0]['message']['content']
             
+        except requests.exceptions.Timeout as e:
+            logger.error(f"DeepSeek API超时: {e}")
+            logger.info("建议检查网络连接或稍后重试")
+            return None
+        except requests.exceptions.ConnectionError as e:
+            logger.error(f"DeepSeek API连接错误: {e}")
+            logger.info("建议检查网络连接或API服务状态")
+            return None
+        except requests.exceptions.HTTPError as e:
+            logger.error(f"DeepSeek API HTTP错误: {e}")
+            if hasattr(e.response, 'status_code'):
+                logger.error(f"HTTP状态码: {e.response.status_code}")
+                if e.response.status_code == 401:
+                    logger.error("API密钥可能无效或已过期")
+                elif e.response.status_code == 429:
+                    logger.error("API调用频率过高，请稍后重试")
+                elif e.response.status_code >= 500:
+                    logger.error("服务器内部错误，请稍后重试")
+            return None
+        except json.JSONDecodeError as e:
+            logger.error(f"DeepSeek API响应JSON解析失败: {e}")
+            return None
         except Exception as e:
             logger.error(f"DeepSeek API查询失败: {e}")
             return None

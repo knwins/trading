@@ -222,6 +222,10 @@ telegram_notifier = TelegramNotifier()
 
 def notify_signal(signal: int, price: float, score: float, reason: str = "") -> bool:
     """快速发送信号通知"""
+    # 观望信号不发送通知
+    if signal == 0:
+        return True
+    
     signal_data = {
         'signal': signal,
         'price': price, 

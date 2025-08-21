@@ -16,7 +16,7 @@ TRADING_CONFIG = {
         'POSITION_SIZE_PERCENT': 0.1,    # 每次开仓资金比例 (10%)
         'MAX_POSITION_SIZE': 0.5,        # 最大仓位比例 (50%)
         'MIN_POSITION_SIZE': 0.05,       # 最小仓位比例 (5%)
-        'LEVERAGE': 1,                   # 杠杆倍数 (期货交易)
+        'LEVERAGE': 10,                  # 杠杆倍数 (期货交易)
     },
     
     # 风险控制配置
@@ -92,16 +92,7 @@ BINANCE_API_CONFIG = {
     # 主网配置
     'MAINNET': {
         'BASE_URL': 'https://fapi.binance.com',
-        'API_VERSION': 'v1',
-        'FUTURES_API_VERSION': 'v2',
-        'TIMEOUT': 10,
-        'RECV_WINDOW': 10000,
-    },
-    
-    # 测试网配置
-    'TESTNET': {
-        'BASE_URL': 'https://testnet.binancefuture.com',
-        'API_VERSION': 'v1',
+        'API_VERSION': 'v2',
         'FUTURES_API_VERSION': 'v2',
         'TIMEOUT': 10,
         'RECV_WINDOW': 10000,
@@ -138,8 +129,8 @@ OPTIMIZED_STRATEGY_CONFIG = {
     
     # 信号方向配置
     'signal_direction': {
-        'long': 1,      # 多头信号
-        'short': -1,    # 空头信号
+        'long': 0.3,      # 多头，综合信号需要>0.3
+        'short':-0.25,    # 空头，综合信号需要<-0.25
         'neutral': 0    # 中性信号
     },
     
@@ -177,7 +168,7 @@ OPTIMIZED_STRATEGY_CONFIG = {
         'entanglement_distance_threshold': 0.03, # 纠缠距离阈值（放宽）
         
         # 信号过滤器参数
-        'enable_signal_filter': True,            # 趋势过滤器
+        'enable_signal_filter': False,            # 趋势过滤器
         'filter_long_base_score': 0.3,          # 多头信号评分阈值 过滤微弱信号
         'filter_long_trend_score': 0.3,         # 多头趋势评分阈值 过滤微弱趋势
 
@@ -262,7 +253,14 @@ OPTIMIZED_STRATEGY_CONFIG = {
         'bearish': 0.4,                    # 看跌阈值
         'strong_bearish': 0.3              # 强看跌阈值
     },
-    'cache_timeout': 300,                  # 缓存超时时间(秒)
+    'cache_timeout': 3600,                  # 缓存超时时间(秒)
+    'deepseek_api_config': {
+        'connect_timeout': 10,             # 连接超时时间(秒)
+        'read_timeout': 60,                # 读取超时时间(秒)
+        'max_retries': 3,                  # 最大重试次数
+        'retry_delay': 1,                  # 重试延迟(秒)
+        'enable_connection_test': True,    # 是否启用连接测试
+    },
 }
 
 # ============================================================================

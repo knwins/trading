@@ -2,94 +2,40 @@
 # -*- coding: utf-8 -*-
 """
 真实交易所API集成模块
-支持Binance合约交易
+支持Binance合约交易 - 仅使用主网
 """
 
-import ccxt
 import time
 import hmac
 import hashlib
 import requests
-from datetime import datetime
-from typing import Dict, Optional, Tuple
+from typing import Dict, Tuple
 from config import BINANCE_API_CONFIG
 
 def get_current_ip() -> str:
     """获取当前公网IP地址"""
     try:
-        ip_services = [
-            'https://api.ipify.org',
-            'https://ifconfig.me/ip',
-            'https://checkip.amazonaws.com',
-            'https://ipinfo.io/ip',
-            'https://icanhazip.com'
-        ]
-        
-        for service in ip_services:
-            try:
-                response = requests.get(service, timeout=5)
-                if response.status_code == 200:
-                    ip = response.text.strip()
-                    if ip and '.' in ip and len(ip.split('.')) == 4:
-                        parts = ip.split('.')
-                        if not (parts[0] == '10' or 
-                               (parts[0] == '172' and 16 <= int(parts[1]) <= 31) or
-                               (parts[0] == '192' and parts[1] == '168')):
-                            return ip
-            except:
-                continue
-        
-        try:
-            import socket
-            hostname = socket.gethostname()
-            local_ip = socket.gethostbyname(hostname)
-            return f"本地IP: {local_ip} (公网IP获取失败)"
-        except:
-            return "IP获取失败"
+        response = requests.get('https://api.ipify.org', timeout=5)
+        if response.status_code == 200:
+            return response.text.strip()
     except:
-        return "IP获取失败"
+        pass
+    return "IP获取失败"
 
 class RealExchangeAPI:
-    """真实交易所API类"""
+    """真实交易所API类 - 仅支持主网"""
     
-    def __init__(self, api_key: str = None, secret_key: str = None, testnet: bool = False):
+    def __init__(self, api_key: str = None, secret_key: str = None):
         """初始化交易所API"""
         self.api_key = api_key
         self.secret_key = secret_key
-        self.testnet = testnet
         
-        # 从配置中获取API设置
-        api_config = BINANCE_API_CONFIG['TESTNET'] if testnet else BINANCE_API_CONFIG['MAINNET']
+        # 从配置中获取主网API设置
+        api_config = BINANCE_API_CONFIG['MAINNET']
         self.base_url = api_config['BASE_URL']
         self.api_version = api_config['API_VERSION']
-        self.futures_api_version = api_config['FUTURES_API_VERSION']
         self.timeout = api_config['TIMEOUT']
         self.recv_window = api_config['RECV_WINDOW']
-        
-        # 初始化ccxt交易所
-        exchange_config = {
-            'apiKey': api_key,
-            'secret': secret_key,
-            'enableRateLimit': True,
-            'sandbox': testnet,
-            'options': {
-                'defaultType': 'future',
-                'adjustForTimeDifference': True,
-                'recvWindow': self.recv_window,
-            }
-        }
-        
-        self.exchange = ccxt.binance(exchange_config)
-        
-        # 强制设置期货API端点
-        self.exchange.urls['api'] = {
-            'public': f'{self.base_url}/fapi/{self.api_version}',
-            'private': f'{self.base_url}/fapi/{self.api_version}',
-        }
-        
-        # 禁用现货API调用
-        self.exchange.has['fetchBalance'] = False
-        self.exchange.has['fetchTicker'] = True
         
         self.logger = None
     
@@ -104,6 +50,24 @@ class RealExchangeAPI:
             query_string.encode('utf-8'),
             hashlib.sha256
         ).hexdigest()
+    
+    def _get_balance_info(self) -> str:
+        """获取账户余额信息（用于错误提示）"""
+        try:
+            result = self._make_api_request(f"/fapi/v2/account")
+            if result['success']:
+                account_data = result['data']
+                total_balance = float(account_data.get('totalWalletBalance', 0))
+                available_balance = float(account_data.get('availableBalance', 0))
+                return f"账户余额: 总={total_balance:.2f} USDT, 可用={available_balance:.2f} USDT"
+            else:
+                # 如果是认证错误，返回提示信息
+                if 'API-key format invalid' in result['error'] or '401' in result['error']:
+                    return "请检查API密钥配置和权限设置"
+                else:
+                    return f"无法获取余额信息: {result['error']}"
+        except Exception as e:
+            return f"获取余额失败: {str(e)}"
     
     def _make_api_request(self, endpoint: str, method: str = 'GET', params: dict = None) -> Dict:
         """统一的API请求方法"""
@@ -168,7 +132,7 @@ class RealExchangeAPI:
     
     def get_balance(self) -> Dict:
         """获取合约账户余额"""
-        result = self._make_api_request(f"/fapi/{self.futures_api_version}/account")
+        result = self._make_api_request(f"/fapi/v2/account")
         
         if result['success']:
             account_data = result['data']
@@ -197,7 +161,7 @@ class RealExchangeAPI:
     
     def get_position(self, symbol: str = 'ETHUSDT') -> Dict:
         """获取当前仓位"""
-        result = self._make_api_request(f"/fapi/{self.futures_api_version}/account")
+        result = self._make_api_request(f"/fapi/v2/account")
         
         if result['success']:
             account_data = result['data']
@@ -207,8 +171,7 @@ class RealExchangeAPI:
                 if pos['symbol'] == symbol:
                     position_amt = float(pos['positionAmt'])
                     leverage = int(pos.get('leverage', 1))
-                    # 安全获取marginType，如果不存在则使用默认值
-                    margin_type = pos.get('marginType', BINANCE_API_CONFIG['COMMON']['DEFAULT_MARGIN_TYPE'])
+                    margin_type = pos.get('marginType', 'ISOLATED')
                     
                     return {
                         'size': abs(position_amt),
@@ -223,16 +186,14 @@ class RealExchangeAPI:
             # 如果没有找到仓位，返回默认值
             return {
                 'size': 0, 'side': None, 'entry_price': 0, 'mark_price': 0, 
-                'unrealized_pnl': 0, 'margin_type': BINANCE_API_CONFIG['COMMON']['DEFAULT_MARGIN_TYPE'], 
-                'leverage': BINANCE_API_CONFIG['COMMON']['DEFAULT_LEVERAGE']
+                'unrealized_pnl': 0, 'margin_type': 'ISOLATED', 'leverage': 1
             }
         else:
             if self.logger:
                 self.logger.error(f"获取仓位失败: {result['error']}")
             return {
                 'size': 0, 'side': None, 'entry_price': 0, 'mark_price': 0, 
-                'unrealized_pnl': 0, 'margin_type': BINANCE_API_CONFIG['COMMON']['DEFAULT_MARGIN_TYPE'], 
-                'leverage': BINANCE_API_CONFIG['COMMON']['DEFAULT_LEVERAGE']
+                'unrealized_pnl': 0, 'margin_type': 'ISOLATED', 'leverage': 1
             }
     
     def set_margin_type(self, symbol: str, margin_type: str = 'ISOLATED') -> Dict:
@@ -243,7 +204,7 @@ class RealExchangeAPI:
                 'marginType': margin_type
             }
             
-            result = self._make_api_request(f"/fapi/{self.api_version}/marginType", method='POST', params=params)
+            result = self._make_api_request(f"/fapi/v1/marginType", method='POST', params=params)
             
             if result['success']:
                 if self.logger:
@@ -324,7 +285,7 @@ class RealExchangeAPI:
                 'leverage': leverage
             }
             
-            result = self._make_api_request(f"/fapi/{self.api_version}/leverage", method='POST', params=params)
+            result = self._make_api_request(f"/fapi/v1/leverage", method='POST', params=params)
             
             if result['success']:
                 if self.logger:
@@ -340,6 +301,7 @@ class RealExchangeAPI:
                 error_msg = result['error']
                 current_ip = get_current_ip()
                 
+                # 处理特定的错误类型
                 if '-2015' in error_msg:
                     error_msg = f'API权限不足: 请确保API密钥具有"期货交易"权限并已添加IP白名单 (IP: {current_ip})'
                 elif '-4046' in error_msg:
@@ -374,33 +336,70 @@ class RealExchangeAPI:
             }
     
     def place_order(self, symbol: str, side: str, amount: float, order_type: str = 'market') -> Dict:
-        """下单"""
+        """下单 - 使用直接API调用"""
         try:
-            order = self.exchange.create_order(
-                symbol=symbol,
-                type=order_type,
-                side=side,
-                amount=amount
-            )
-            
-            if self.logger:
-                self.logger.info(f"下单成功: {symbol} {side} {amount} {order_type}")
-            
-            return {
-                'success': True,
-                'order_id': order['id'],
-                'symbol': order['symbol'],
-                'side': order['side'],
-                'amount': order['amount'],
-                'price': order['price'],
-                'status': order['status']
+            params = {
+                'symbol': symbol,
+                'side': side.upper(),
+                'type': order_type.upper(),
+                'quantity': amount
             }
+            
+            result = self._make_api_request(f"/fapi/v1/order", method='POST', params=params)
+            
+            if result['success']:
+                order_data = result['data']
+                if self.logger:
+                    self.logger.info(f"下单成功: {symbol} {side} {amount} {order_type} - 订单ID: {order_data.get('orderId')}")
+                
+                return {
+                    'success': True,
+                    'order_id': order_data.get('orderId'),
+                    'symbol': order_data.get('symbol'),
+                    'side': order_data.get('side'),
+                    'amount': order_data.get('origQty'),
+                    'price': order_data.get('price'),
+                    'status': order_data.get('status'),
+                    'message': f'下单成功: {amount} {symbol} {side}'
+                }
+            else:
+                error_msg = result['error']
+                current_ip = get_current_ip()
+                
+                # 处理特定的错误类型
+                if '-2015' in error_msg:
+                    error_msg = f'API权限不足: 请确保API密钥具有"期货交易"权限并已添加IP白名单 (IP: {current_ip})'
+                elif '-2019' in error_msg:
+                    # 获取账户余额信息
+                    balance_info = self._get_balance_info()
+                    error_msg = f'保证金不足: 请检查账户余额 (IP: {current_ip}) - 下单金额: {amount} {symbol} | {balance_info}'
+                elif '-4164' in error_msg:
+                    error_msg = f'订单参数错误: 请检查交易对和数量 (IP: {current_ip}) - 下单金额: {amount} {symbol}'
+                else:
+                    # 对于其他错误，也显示余额信息以便排查
+                    balance_info = self._get_balance_info()
+                    error_msg = f'下单失败: {error_msg} (IP: {current_ip}) - 下单金额: {amount} {symbol} | {balance_info}'
+                
+                if self.logger:
+                    self.logger.error(f"下单失败: {error_msg}")
+                
+                return {
+                    'success': False,
+                    'error': error_msg,
+                    'ip_info': f'当前IP: {current_ip}'
+                }
+                
         except Exception as e:
+            error_msg = str(e)
+            current_ip = get_current_ip()
+            
             if self.logger:
-                self.logger.error(f"下单失败: {e}")
+                self.logger.error(f"下单失败: {error_msg}")
+            
             return {
                 'success': False,
-                'error': str(e)
+                'error': f'{error_msg} (IP: {current_ip})',
+                'ip_info': f'当前IP: {current_ip}'
             }
     
     def close_position(self, symbol: str) -> Dict:
@@ -413,44 +412,57 @@ class RealExchangeAPI:
             # 计算平仓方向
             close_side = 'sell' if position['side'] == 'long' else 'buy'
             
-            order = self.place_order(symbol, close_side, position['size'])
-            
-            if self.logger:
-                self.logger.info(f"平仓成功: {symbol} {close_side} {position['size']}")
-            
-            return order
-        except Exception as e:
-            if self.logger:
-                self.logger.error(f"平仓失败: {e}")
-            return {'success': False, 'error': str(e)}
-    
-    def get_order_status(self, order_id: str, symbol: str) -> Dict:
-        """获取订单状态"""
-        try:
-            order = self.exchange.fetch_order(order_id, symbol)
-            return {
-                'id': order['id'],
-                'symbol': order['symbol'],
-                'side': order['side'],
-                'amount': order['amount'],
-                'price': order['price'],
-                'status': order['status'],
-                'filled': order['filled'],
-                'remaining': order['remaining']
+            # 使用直接API调用平仓
+            params = {
+                'symbol': symbol,
+                'side': close_side.upper(),
+                'type': 'MARKET',
+                'quantity': position['size']
             }
+            
+            result = self._make_api_request(f"/fapi/v1/order", method='POST', params=params)
+            
+            if result['success']:
+                order_data = result['data']
+                if self.logger:
+                    self.logger.info(f"平仓成功: {symbol} {close_side} {position['size']} - 订单ID: {order_data.get('orderId')}")
+                
+                return {
+                    'success': True,
+                    'order_id': order_data.get('orderId'),
+                    'symbol': order_data.get('symbol'),
+                    'side': order_data.get('side'),
+                    'amount': order_data.get('origQty'),
+                    'status': order_data.get('status'),
+                    'message': f'平仓成功: {position["size"]} {symbol} {close_side}'
+                }
+            else:
+                error_msg = result['error']
+                current_ip = get_current_ip()
+                
+                if self.logger:
+                    self.logger.error(f"平仓失败: {error_msg}")
+                
+                # 如果是保证金不足错误，添加余额信息
+                if '-2019' in error_msg:
+                    balance_info = self._get_balance_info()
+                    error_msg = f'{error_msg} | {balance_info}'
+                
+                return {
+                    'success': False,
+                    'error': f'{error_msg} (IP: {current_ip}) - 平仓金额: {position["size"]} {symbol}',
+                    'ip_info': f'当前IP: {current_ip}'
+                }
+                
         except Exception as e:
+            error_msg = str(e)
+            current_ip = get_current_ip()
+            
             if self.logger:
-                self.logger.error(f"获取订单状态失败: {e}")
-            return {'status': 'unknown', 'error': str(e)}
-    
-    def cancel_order(self, order_id: str, symbol: str) -> bool:
-        """取消订单"""
-        try:
-            self.exchange.cancel_order(order_id, symbol)
-            if self.logger:
-                self.logger.info(f"取消订单成功: {order_id}")
-            return True
-        except Exception as e:
-            if self.logger:
-                self.logger.error(f"取消订单失败: {e}")
-            return False
+                self.logger.error(f"平仓失败: {error_msg}")
+            
+            return {
+                'success': False,
+                'error': f'{error_msg} (IP: {current_ip})',
+                'ip_info': f'当前IP: {current_ip}'
+            }

@@ -117,7 +117,7 @@ def calculate_all_signals_sharpe():
             if i < 10:  # 只对前10个数据点显示调试信息
                 print(f"🔍 计算第 {i+1} 个数据点信号，数据长度: {len(current_data)}")
             
-            signal_info = strategy.generate_signals(current_data, verbose=False)
+            signal_info = strategy._calculate_signal(current_data, verbose=False)
             
             # 添加更详细的调试信息
             if i < 10:  # 只对前10个数据点显示调试信息
