@@ -70,8 +70,8 @@ PERIOD_CONFIG = {
 LOGGING_CONFIG = {
     'LEVEL': 'INFO',  # 改回INFO级别，减少日志输出
     'CONSOLE_OUTPUT': True,
-    'FILE_OUTPUT': False,  # 关闭文件输出，避免生成单独的日志文件
-    'LOG_DIR': 'logs',
+    'FILE_OUTPUT': True,  # 启用文件输出
+    'LOG_DIR': 'logs',  # 使用相对路径，在当前目录下创建logs文件夹
 }
 
 # 调试配置
