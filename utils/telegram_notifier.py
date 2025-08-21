@@ -74,13 +74,13 @@ class TelegramNotifier:
         side = trade_data.get('side')      # 'long', 'short'
         price = trade_data.get('price', 0)
         quantity = trade_data.get('quantity', 0)
-        pnl = trade_data.get('pnl', 0)
+        pnl = trade_data.get('pnl')  # 允许为None
         
         if action == 'open':
             action_icon = "📈" if side == 'long' else "📉"
             action_text = f"开仓 - {'做多' if side == 'long' else '做空'}"
         else:
-            action_icon = "💰" if pnl > 0 else "💸"
+            action_icon = "💰" if pnl is not None and pnl > 0 else "💸"
             action_text = "平仓"
         
         message = f"""
@@ -89,6 +89,7 @@ class TelegramNotifier:
 🎯 操作: <b>{action_text}</b>
 💰 价格: <code>${price:,.2f}</code>
 📊 数量: <code>{quantity:.4f} ETH</code>
+💵 价值: <code>${quantity * price:,.2f} USDT</code>
 """
         
         if action == 'close' and pnl is not None:

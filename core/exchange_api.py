@@ -54,7 +54,7 @@ class RealExchangeAPI:
     def _get_balance_info(self) -> str:
         """获取账户余额信息（用于错误提示）"""
         try:
-            result = self._make_api_request(f"/fapi/v2/account")
+            result = self._make_api_request(f"/v2/account")
             if result['success']:
                 account_data = result['data']
                 total_balance = float(account_data.get('totalWalletBalance', 0))
@@ -88,8 +88,12 @@ class RealExchangeAPI:
             # 创建签名
             signature = self._create_signature(query_string)
             
-            # 构建URL
-            url = f"{self.base_url}{endpoint}?{query_string}&signature={signature}"
+            # 构建URL - 确保正确的API路径
+            if endpoint.startswith('/v2/') or endpoint.startswith('/v1/'):
+                # 对于v1和v2 API，需要添加/fapi/前缀
+                url = f"{self.base_url}/fapi{endpoint}?{query_string}&signature={signature}"
+            else:
+                url = f"{self.base_url}{endpoint}?{query_string}&signature={signature}"
             
             # 设置请求头
             headers = {'X-MBX-APIKEY': self.api_key}
@@ -132,7 +136,7 @@ class RealExchangeAPI:
     
     def get_balance(self) -> Dict:
         """获取合约账户余额"""
-        result = self._make_api_request(f"/fapi/v2/account")
+        result = self._make_api_request(f"/v2/account")
         
         if result['success']:
             account_data = result['data']
@@ -161,7 +165,7 @@ class RealExchangeAPI:
     
     def get_position(self, symbol: str = 'ETHUSDT') -> Dict:
         """获取当前仓位"""
-        result = self._make_api_request(f"/fapi/v2/account")
+        result = self._make_api_request(f"/v2/account")
         
         if result['success']:
             account_data = result['data']

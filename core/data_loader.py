@@ -167,6 +167,7 @@ class DataLoader:
         
         # 从配置中获取API端点
         from config import BINANCE_API_CONFIG
+        # 修复API URL - 构建正确的合约API URL
         api_url = f"{BINANCE_API_CONFIG['MAINNET']['BASE_URL']}/fapi/{BINANCE_API_CONFIG['MAINNET']['API_VERSION']}"
         
         # 使用合约API（仅生产环境）

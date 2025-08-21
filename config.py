@@ -31,13 +31,13 @@ TRADING_CONFIG = {
 
 # 策略窗口参数配置
 WINDOW_CONFIG = {
-    'SHORT_WINDOW': 300,  # 从30减少到10
-    'LONG_WINDOW': 600,   # 从60减少到20
+    'SHORT_WINDOW': 200,  # 从30减少到10
+    'LONG_WINDOW': 400,   # 从60减少到20
 }
 
 # 回测配置参数
 BACKTEST_CONFIG = {
-    'BACKTEST_DAYS': 90,
+    'BACKTEST_DAYS': 60,
 }
 
 # ============================================================================
@@ -92,8 +92,8 @@ BINANCE_API_CONFIG = {
     # 主网配置
     'MAINNET': {
         'BASE_URL': 'https://fapi.binance.com',
-        'API_VERSION': 'v2',
-        'FUTURES_API_VERSION': 'v2',
+        'API_VERSION': 'v1',  # 修复：Binance合约API使用v1版本
+        'FUTURES_API_VERSION': 'v1',  # 修复：Binance合约API使用v1版本
         'TIMEOUT': 10,
         'RECV_WINDOW': 10000,
     },
@@ -129,8 +129,8 @@ OPTIMIZED_STRATEGY_CONFIG = {
     
     # 信号方向配置
     'signal_direction': {
-        'long': 0.3,      # 多头，综合信号需要>0.3
-        'short':-0.25,    # 空头，综合信号需要<-0.25
+        'long': 0.01,      # 多头，综合信号需要>0.3
+        'short':-0.01,    # 空头，综合信号需要<-0.25
         'neutral': 0    # 中性信号
     },
     
@@ -168,9 +168,9 @@ OPTIMIZED_STRATEGY_CONFIG = {
         'entanglement_distance_threshold': 0.03, # 纠缠距离阈值（放宽）
         
         # 信号过滤器参数
-        'enable_signal_filter': False,            # 趋势过滤器
+        'enable_signal_filter': True,            # 趋势过滤器
         'filter_long_base_score': 0.3,          # 多头信号评分阈值 过滤微弱信号
-        'filter_long_trend_score': 0.3,         # 多头趋势评分阈值 过滤微弱趋势
+        'filter_long_trend_score': 0.2,         # 多头趋势评分阈值 过滤微弱趋势
 
         'filter_short_base_score': -0.3,         # 空头信号评分阈值 过滤微弱信号
         'filter_short_trend_score': -0.1,       # 空头趋势评分阈值 过滤微弱趋势

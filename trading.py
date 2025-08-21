@@ -182,6 +182,8 @@ class TradingSystem:
         """设置信号处理器"""
         signal.signal(signal.SIGINT, self.signal_handler)
         signal.signal(signal.SIGTERM, self.signal_handler)
+        # 设置紧急停止信号 (SIGUSR1 在Windows上不可用，使用SIGINT的变体)
+        # 在Windows上，我们可以通过其他方式实现紧急停止
         
         if hasattr(signal, 'SIGUSR2'):
             signal.signal(signal.SIGUSR2, self.emergency_stop)
@@ -216,6 +218,9 @@ class TradingSystem:
         self.total_pnl = 0.0
         self.trade_history = []
         
+        # 加载历史交易记录
+        self.load_trade_history()
+        
         # 重置每日计数
         self.reset_daily_counters()
         
@@ -231,8 +236,18 @@ class TradingSystem:
         self.last_trade_time = None
         self.trade_count = 0
         
+        # 持仓成本记录
+        self.position_entry_price = 0.0  # 开仓价格
+        self.position_quantity = 0.0     # 持仓数量 (ETH)
+        self.position_value = 0.0        # 持仓价值 (USDT)
+        
+        # 加载持仓状态
+        self.load_position_status()
+        
         # 系统监控
         self.heartbeat_interval = 30  # 心跳间隔(秒)
+        self.position_monitor_interval = 60  # 持仓监控间隔(秒)
+        self.last_position_update = datetime.now()
         
         self.logger.info("📊 交易状态初始化完成")
     
@@ -303,9 +318,9 @@ class TradingSystem:
     
 
     
-    def emergency_stop(self, signum, frame):
-        """紧急停止"""
-        self.logger.warning("🚨 紧急停止触发！")
+    def emergency_stop_signal_handler(self, signum, frame):
+        """紧急停止信号处理器"""
+        self.logger.warning("🚨 紧急停止信号触发！")
         
         # 在交互模式下，不强制平仓，而是提示用户
         if self.mode == 'interactive':
@@ -346,9 +361,8 @@ class TradingSystem:
                 print("✅ 当前无仓位，直接停止")
                 self.stop()
         else:
-            # 在服务模式下，直接强制平仓
-            self.emergency_close_positions()
-            self.stop()
+            # 在服务模式下，直接强制平仓并停止
+            self.emergency_stop()
     
     def emergency_close_positions(self):
         """紧急平仓"""
@@ -364,6 +378,7 @@ class TradingSystem:
             # 恢复可用资金
             self.available_capital = self.current_capital
             self.current_position = 0
+            self.save_position_status()  # 保存持仓状态
             
             self.logger.info("✅ 紧急平仓完成")
             print("✅ 紧急平仓完成")
@@ -426,8 +441,8 @@ class TradingSystem:
                         else:
                             reason = "市场趋势不明确，观望"
                     
-                    # 只有非观望信号才发送通知
-                    if signal_value != 0:
+                    # 只有非观望信号且无持仓时才发送信号通知
+                    if signal_value != 0 and self.current_position == 0:
                         notify_signal(signal_value, current_price, signal_score, reason)
                 except Exception as e:
                     if not silent:
@@ -502,13 +517,22 @@ class TradingSystem:
                     if result['success']:
                         self.logger.info(f"🟢 真实开多仓成功 - 订单ID: {result['order_id']}, ETH数量: {eth_amount:.4f}, USDT金额: {usdt_amount:.2f}")
                         self.current_position = 1
+                        
+                        # 记录持仓成本
+                        self.position_entry_price = current_price if current_price > 0 else usdt_amount / eth_amount
+                        self.position_quantity = eth_amount
+                        self.position_value = usdt_amount
+                        
+                        self.save_position_status()  # 保存持仓状态
                         self.available_capital -= usdt_amount
-                        self.record_trade('LONG', usdt_amount, signal_score)
+                        self.record_trade('LONG', usdt_amount, signal_score, 
+                                        f"多头信号触发 (评分:{signal_score:.3f})", 
+                                        current_price, eth_amount)
                         
                         # 发送Telegram通知
                         try:
                             current_price = market_data['close'].iloc[-1] if not market_data.empty else 0
-                            notify_trade('open', 'long', current_price, usdt_amount)
+                            notify_trade('open', 'long', current_price, eth_amount)
                         except Exception as e:
                             self.logger.warning(f"Telegram通知发送失败: {e}")
                     else:
@@ -523,13 +547,27 @@ class TradingSystem:
                     trade_amount = self.available_capital * position_size
                     self.logger.info(f"🟢 模拟开多仓 - 金额: {trade_amount:,.0f} USDT, 仓位: {position_size:.1%}")
                     self.current_position = 1
+                    
+                    # 记录持仓成本（模拟交易）
+                    current_price = market_data['close'].iloc[-1] if not market_data.empty else 3000
+                    eth_amount = trade_amount / current_price
+                    self.position_entry_price = current_price
+                    self.position_quantity = eth_amount
+                    self.position_value = trade_amount
+                    
+                    self.save_position_status()  # 保存持仓状态
                     self.available_capital -= trade_amount
-                    self.record_trade('LONG', trade_amount, signal_score)
+                    self.record_trade('LONG', trade_amount, signal_score, 
+                                    f"模拟多头信号 (评分:{signal_score:.3f})", 
+                                    current_price, eth_amount)
                     
                     # 发送Telegram通知（模拟交易）
                     try:
                         current_price = market_data['close'].iloc[-1] if not market_data.empty else 0
-                        notify_trade('open', 'long', current_price, trade_amount)
+                        # 模拟交易也转换为ETH数量
+                        eth_amount = trade_amount / current_price if current_price > 0 else trade_amount / 3000
+                        eth_amount = round(eth_amount, 3)
+                        notify_trade('open', 'long', current_price, eth_amount)
                     except Exception as e:
                         self.logger.warning(f"Telegram通知发送失败: {e}")
                 
@@ -576,13 +614,22 @@ class TradingSystem:
                     if result['success']:
                         self.logger.info(f"🔴 真实开空仓成功 - 订单ID: {result['order_id']}, ETH数量: {eth_amount:.4f}, USDT金额: {usdt_amount:.2f}")
                         self.current_position = -1
+                        
+                        # 记录持仓成本
+                        self.position_entry_price = current_price if current_price > 0 else usdt_amount / eth_amount
+                        self.position_quantity = eth_amount
+                        self.position_value = usdt_amount
+                        
+                        self.save_position_status()  # 保存持仓状态
                         self.available_capital -= usdt_amount
-                        self.record_trade('SHORT', usdt_amount, signal_score)
+                        self.record_trade('SHORT', usdt_amount, signal_score, 
+                                        f"空头信号触发 (评分:{signal_score:.3f})", 
+                                        current_price, eth_amount)
                         
                         # 发送Telegram通知
                         try:
                             current_price = market_data['close'].iloc[-1] if not market_data.empty else 0
-                            notify_trade('open', 'short', current_price, usdt_amount)
+                            notify_trade('open', 'short', current_price, eth_amount)
                         except Exception as e:
                             self.logger.warning(f"Telegram通知发送失败: {e}")
                     else:
@@ -597,12 +644,26 @@ class TradingSystem:
                     trade_amount = self.available_capital * position_size
                     self.logger.info(f"🔴 模拟开空仓 - 金额: {trade_amount:,.0f} USDT, 仓位: {position_size:.1%}")
                     self.current_position = -1
+                    
+                    # 记录持仓成本（模拟交易）
+                    current_price = market_data['close'].iloc[-1] if not market_data.empty else 3000
+                    eth_amount = trade_amount / current_price
+                    self.position_entry_price = current_price
+                    self.position_quantity = eth_amount
+                    self.position_value = trade_amount
+                    
+                    self.save_position_status()  # 保存持仓状态
                     self.available_capital -= trade_amount
-                    self.record_trade('SHORT', trade_amount, signal_score)                    
+                    self.record_trade('SHORT', trade_amount, signal_score, 
+                                    f"模拟空头信号 (评分:{signal_score:.3f})", 
+                                    current_price, eth_amount)                    
                     # 发送Telegram通知（模拟交易）
                     try:
                         current_price = market_data['close'].iloc[-1] if not market_data.empty else 0
-                        notify_trade('open', 'short', current_price, trade_amount)
+                        # 模拟交易也转换为ETH数量
+                        eth_amount = trade_amount / current_price if current_price > 0 else trade_amount / 3000
+                        eth_amount = round(eth_amount, 3)
+                        notify_trade('open', 'short', current_price, eth_amount)
                     except Exception as e:
                         self.logger.warning(f"Telegram通知发送失败: {e}")
                 
@@ -617,9 +678,25 @@ class TradingSystem:
                     
                     if result['success']:
                         self.logger.info(f"⚪ 真实平仓成功 ({position_desc})")
+                        
+                        # 计算已实现盈亏
+                        if self.position_quantity > 0:
+                            current_price = market_data['close'].iloc[-1] if not market_data.empty else self.position_entry_price
+                            realized_pnl = self.calculate_unrealized_pnl(current_price)
+                            self.update_realized_pnl(realized_pnl)
+                        
+                        # 清除持仓信息
                         self.current_position = 0
+                        self.position_entry_price = 0.0
+                        self.position_quantity = 0.0
+                        self.position_value = 0.0
+                        
+                        self.save_position_status()  # 保存持仓状态
                         self.available_capital = self.current_capital
-                        self.record_trade('CLOSE', 0, signal_score)
+                        current_price = market_data['close'].iloc[-1] if not market_data.empty else 0
+                        self.record_trade('CLOSE', 0, signal_score, 
+                                        f"平仓信号 (评分:{signal_score:.3f}) - {position_desc}", 
+                                        current_price, 0)
                         
                         # 发送Telegram通知
                         try:
@@ -637,9 +714,25 @@ class TradingSystem:
                 else:
                     # 模拟平仓
                     self.logger.info(f"⚪ 模拟平仓 ({position_desc}) - 当前仓位: {self.current_position}")
+                    
+                    # 计算已实现盈亏（模拟交易）
+                    if self.position_quantity > 0:
+                        current_price = market_data['close'].iloc[-1] if not market_data.empty else self.position_entry_price
+                        realized_pnl = self.calculate_unrealized_pnl(current_price)
+                        self.update_realized_pnl(realized_pnl)
+                    
+                    # 清除持仓信息
                     self.current_position = 0
+                    self.position_entry_price = 0.0
+                    self.position_quantity = 0.0
+                    self.position_value = 0.0
+                    
+                    self.save_position_status()  # 保存持仓状态
                     self.available_capital = self.current_capital
-                    self.record_trade('CLOSE', 0, signal_score)
+                    current_price = market_data['close'].iloc[-1] if not market_data.empty else 0
+                    self.record_trade('CLOSE', 0, signal_score, 
+                                    f"模拟平仓信号 (评分:{signal_score:.3f}) - {position_desc}", 
+                                    current_price, 0)
                     
                     # 发送Telegram通知（模拟平仓）
                     try:
@@ -679,7 +772,7 @@ class TradingSystem:
             self.logger.error(f"❌ 计算仓位大小失败: {e}")
             return self.min_position_size
     
-    def record_trade(self, trade_type, amount, signal_score):
+    def record_trade(self, trade_type, amount, signal_score, reason="", price=0, quantity=0):
         """记录交易"""
         try:
             self.trade_count += 1
@@ -691,6 +784,9 @@ class TradingSystem:
                 'type': trade_type,
                 'amount': amount,
                 'signal_score': signal_score,
+                'reason': reason,
+                'price': price,
+                'quantity': quantity,
                 'position': self.current_position,
                 'capital': self.current_capital,
                 'available_capital': self.available_capital
@@ -698,10 +794,392 @@ class TradingSystem:
             
             self.trade_history.append(trade_record)
             
-            self.logger.info(f"📝 交易记录: {trade_type} - 金额: {amount:,.0f} USDT, 评分: {signal_score:.4f}")
+            # 保存交易历史到文件
+            self.save_trade_history()
+            
+            self.logger.info(f"📝 交易记录: {trade_type} - 金额: {amount:,.0f} USDT, 评分: {signal_score:.4f}, 理由: {reason}")
             
         except Exception as e:
             self.logger.error(f"❌ 记录交易失败: {e}")
+    
+    def save_trade_history(self):
+        """保存交易历史到文件"""
+        try:
+            # 确保json目录存在
+            os.makedirs('json', exist_ok=True)
+            
+            # 去重处理 - 基于timestamp和type的组合
+            seen = set()
+            unique_trades = []
+            
+            for trade in self.trade_history:
+                # 创建唯一标识符（包含新字段）
+                reason = trade.get('reason', '')
+                price = trade.get('price', 0)
+                quantity = trade.get('quantity', 0)
+                identifier = (trade['timestamp'].isoformat(), trade['type'], trade['amount'], 
+                            trade['signal_score'], reason, price, quantity)
+                if identifier not in seen:
+                    seen.add(identifier)
+                    unique_trades.append(trade)
+            
+            # 如果发现重复，更新内存中的交易历史
+            if len(unique_trades) != len(self.trade_history):
+                self.logger.warning(f"⚠️ 发现重复交易记录，已去重：{len(self.trade_history)} -> {len(unique_trades)}")
+                self.trade_history = unique_trades
+            
+            # 转换datetime对象为字符串
+            history_to_save = []
+            for trade in self.trade_history:
+                trade_copy = trade.copy()
+                trade_copy['timestamp'] = trade_copy['timestamp'].isoformat()
+                history_to_save.append(trade_copy)
+            
+            # 保存到文件
+            with open('json/trade_history.json', 'w', encoding='utf-8') as f:
+                json.dump(history_to_save, f, indent=2, ensure_ascii=False)
+                
+            self.logger.debug(f"✅ 交易历史已保存: {len(self.trade_history)} 条记录")
+            
+        except Exception as e:
+            self.logger.error(f"❌ 保存交易历史失败: {e}")
+    
+    def load_trade_history(self):
+        """从文件加载交易历史"""
+        try:
+            history_file = 'json/trade_history.json'
+            if os.path.exists(history_file):
+                with open(history_file, 'r', encoding='utf-8') as f:
+                    history_data = json.load(f)
+                
+                # 转换字符串为datetime对象
+                for trade in history_data:
+                    trade['timestamp'] = datetime.fromisoformat(trade['timestamp'])
+                
+                self.trade_history = history_data
+                self.logger.info(f"✅ 交易历史已加载: {len(self.trade_history)} 条记录")
+            else:
+                self.logger.info("📝 未找到交易历史文件，将创建新的历史记录")
+                
+        except Exception as e:
+            self.logger.error(f"❌ 加载交易历史失败: {e}")
+            self.trade_history = []
+    
+    def save_position_status(self):
+        """保存持仓状态到文件"""
+        try:
+            # 确保json目录存在
+            os.makedirs('json', exist_ok=True)
+            
+            position_data = {
+                'current_position': self.current_position,
+                'last_signal': self.last_signal,
+                'last_trade_time': self.last_trade_time.isoformat() if self.last_trade_time else None,
+                'trade_count': self.trade_count,
+                'current_capital': self.current_capital,
+                'available_capital': self.available_capital,
+                'total_pnl': self.total_pnl,
+                'daily_pnl': self.daily_pnl,
+                'daily_trades': self.daily_trades,
+                'position_entry_price': self.position_entry_price,
+                'position_quantity': self.position_quantity,
+                'position_value': self.position_value,
+                'timestamp': datetime.now().isoformat()
+            }
+            
+            with open('json/position_status.json', 'w', encoding='utf-8') as f:
+                json.dump(position_data, f, indent=2, ensure_ascii=False)
+                
+            self.logger.debug(f"✅ 持仓状态已保存: 仓位={self.current_position}")
+            
+        except Exception as e:
+            self.logger.error(f"❌ 保存持仓状态失败: {e}")
+    
+    def load_position_status(self):
+        """从文件加载持仓状态"""
+        try:
+            position_file = 'json/position_status.json'
+            if os.path.exists(position_file):
+                with open(position_file, 'r', encoding='utf-8') as f:
+                    position_data = json.load(f)
+                
+                # 恢复持仓状态
+                self.current_position = position_data.get('current_position', 0)
+                self.last_signal = position_data.get('last_signal', 0)
+                
+                # 恢复时间戳
+                last_trade_time_str = position_data.get('last_trade_time')
+                if last_trade_time_str:
+                    self.last_trade_time = datetime.fromisoformat(last_trade_time_str)
+                
+                # 恢复其他状态
+                self.trade_count = position_data.get('trade_count', 0)
+                self.current_capital = position_data.get('current_capital', self.initial_capital)
+                self.available_capital = position_data.get('available_capital', self.initial_capital)
+                self.total_pnl = position_data.get('total_pnl', 0.0)
+                self.daily_pnl = position_data.get('daily_pnl', 0.0)
+                self.daily_trades = position_data.get('daily_trades', 0)
+                
+                # 恢复持仓成本记录
+                self.position_entry_price = position_data.get('position_entry_price', 0.0)
+                self.position_quantity = position_data.get('position_quantity', 0.0)
+                self.position_value = position_data.get('position_value', 0.0)
+                
+                position_desc = {1: '多头', -1: '空头', 0: '无仓位'}.get(self.current_position, '未知')
+                self.logger.info(f"✅ 持仓状态已恢复: {position_desc} (仓位={self.current_position})")
+                
+            else:
+                self.logger.info("📝 未找到持仓状态文件，使用默认状态")
+                
+        except Exception as e:
+            self.logger.error(f"❌ 加载持仓状态失败: {e}")
+            # 使用默认值
+            self.current_position = 0
+            self.last_signal = 0
+            self.last_trade_time = None
+            self.trade_count = 0
+            self.position_entry_price = 0.0
+            self.position_quantity = 0.0
+            self.position_value = 0.0
+    
+    def calculate_unrealized_pnl(self, current_price=None):
+        """计算未实现盈亏"""
+        try:
+            if self.current_position == 0 or self.position_quantity == 0:
+                return 0.0
+            
+            # 获取当前价格
+            if current_price is None:
+                market_data = self.get_market_data(silent=True)
+                if market_data is not None and not market_data.empty:
+                    current_price = market_data['close'].iloc[-1]
+                else:
+                    # 无法获取价格时返回0
+                    return 0.0
+            
+            # 计算未实现盈亏
+            if self.current_position == 1:  # 多头
+                unrealized_pnl = (current_price - self.position_entry_price) * self.position_quantity
+            else:  # 空头
+                unrealized_pnl = (self.position_entry_price - current_price) * self.position_quantity
+            
+            return unrealized_pnl
+            
+        except Exception as e:
+            self.logger.error(f"❌ 计算未实现盈亏失败: {e}")
+            return 0.0
+    
+    def update_realized_pnl(self, realized_pnl):
+        """更新已实现盈亏"""
+        try:
+            # 更新总盈亏
+            self.total_pnl += realized_pnl
+            
+            # 更新今日盈亏
+            self.daily_pnl += realized_pnl
+            
+            # 更新资金
+            self.current_capital += realized_pnl
+            self.available_capital = self.current_capital
+            
+            # 保存状态
+            self.save_position_status()
+            
+            self.logger.info(f"💰 已实现盈亏: {realized_pnl:+.2f} USDT, 总盈亏: {self.total_pnl:+.2f} USDT")
+            
+        except Exception as e:
+            self.logger.error(f"❌ 更新已实现盈亏失败: {e}")
+    
+    def get_current_pnl_info(self):
+        """获取当前盈亏信息"""
+        try:
+            # 计算未实现盈亏
+            unrealized_pnl = self.calculate_unrealized_pnl()
+            
+            # 总盈亏 = 已实现盈亏 + 未实现盈亏
+            total_current_pnl = self.total_pnl + unrealized_pnl
+            
+            return {
+                'realized_pnl': self.total_pnl,
+                'unrealized_pnl': unrealized_pnl,
+                'total_pnl': total_current_pnl,
+                'daily_pnl': self.daily_pnl,
+                'current_capital': self.current_capital,
+                'available_capital': self.available_capital
+            }
+            
+        except Exception as e:
+            self.logger.error(f"❌ 获取盈亏信息失败: {e}")
+            return {
+                'realized_pnl': self.total_pnl,
+                'unrealized_pnl': 0.0,
+                'total_pnl': self.total_pnl,
+                'daily_pnl': self.daily_pnl,
+                'current_capital': self.current_capital,
+                'available_capital': self.available_capital
+            }
+    
+    def get_position_info(self):
+        """获取持仓详细信息"""
+        try:
+            position_desc = {1: '多头', -1: '空头', 0: '无仓位'}.get(self.current_position, '未知')
+            
+            if self.current_position == 0:
+                return {
+                    'position_desc': position_desc,
+                    'entry_price': 0.0,
+                    'quantity': 0.0,
+                    'value': 0.0,
+                    'unrealized_pnl': 0.0,
+                    'unrealized_pnl_percent': 0.0
+                }
+            
+            # 计算未实现盈亏
+            unrealized_pnl = self.calculate_unrealized_pnl()
+            unrealized_pnl_percent = (unrealized_pnl / self.position_value * 100) if self.position_value > 0 else 0.0
+            
+            return {
+                'position_desc': position_desc,
+                'entry_price': self.position_entry_price,
+                'quantity': self.position_quantity,
+                'value': self.position_value,
+                'unrealized_pnl': unrealized_pnl,
+                'unrealized_pnl_percent': unrealized_pnl_percent
+            }
+            
+        except Exception as e:
+            self.logger.error(f"❌ 获取持仓信息失败: {e}")
+            return {
+                'position_desc': '未知',
+                'entry_price': 0.0,
+                'quantity': 0.0,
+                'value': 0.0,
+                'unrealized_pnl': 0.0,
+                'unrealized_pnl_percent': 0.0
+            }
+    
+    def _format_position_detail(self, position_info):
+        """格式化持仓详情显示"""
+        try:
+            if position_info['position_desc'] == '无仓位':
+                return "无持仓"
+            
+            entry_price = position_info['entry_price']
+            quantity = position_info['quantity']
+            value = position_info['value']
+            unrealized_pnl = position_info['unrealized_pnl']
+            unrealized_pnl_percent = position_info['unrealized_pnl_percent']
+            
+            return (f"{position_info['position_desc']} | "
+                   f"开仓价: ${entry_price:,.0f} | "
+                   f"数量: {quantity:.4f} ETH | "
+                   f"价值: ${value:,.0f} | "
+                   f"盈亏: ${unrealized_pnl:+,.0f} ({unrealized_pnl_percent:+.2f}%)")
+            
+        except Exception as e:
+            self.logger.error(f"❌ 格式化持仓详情失败: {e}")
+            return "持仓信息异常"
+    
+    def monitor_position(self):
+        """监控持仓状态"""
+        try:
+            if self.current_position == 0:
+                return
+            
+            # 检查是否需要更新持仓监控
+            current_time = datetime.now()
+            time_since_update = (current_time - self.last_position_update).total_seconds()
+            
+            if time_since_update < self.position_monitor_interval:
+                return
+            
+            # 获取当前持仓信息
+            position_info = self.get_position_info()
+            unrealized_pnl = position_info['unrealized_pnl']
+            unrealized_pnl_percent = position_info['unrealized_pnl_percent']
+            
+            # 记录持仓状态
+            self.logger.info(f"📊 持仓监控 - {position_info['position_desc']} | "
+                           f"开仓价: ${position_info['entry_price']:,.0f} | "
+                           f"数量: {position_info['quantity']:.4f} ETH | "
+                           f"盈亏: ${unrealized_pnl:+,.0f} ({unrealized_pnl_percent:+.2f}%)")
+            
+            # 检查风险预警（已关闭Telegram通知）
+            if unrealized_pnl_percent <= -10:  # 亏损超过10%
+                self.logger.warning(f"⚠️ 持仓风险预警: 亏损 {abs(unrealized_pnl_percent):.2f}%")
+                # 已关闭Telegram通知
+                # try:
+                #     notify_error(f"持仓风险预警: 亏损 {abs(unrealized_pnl_percent):.2f}%", "持仓监控")
+                # except Exception as e:
+                #     self.logger.warning(f"风险预警通知发送失败: {e}")
+            
+            elif unrealized_pnl_percent >= 20:  # 盈利超过20%
+                self.logger.info(f"🎉 持仓盈利: +{unrealized_pnl_percent:.2f}%")
+            
+            self.last_position_update = current_time
+            
+        except Exception as e:
+            self.logger.error(f"❌ 持仓监控失败: {e}")
+    
+    def show_position_detail(self):
+        """显示持仓详情"""
+        try:
+            print("\n" + "="*60)
+            print("📊 持仓详情")
+            print("="*60)
+            
+            position_info = self.get_position_info()
+            pnl_info = self.get_current_pnl_info()
+            
+            print(f"📈 当前仓位: {position_info['position_desc']}")
+            
+            if self.current_position != 0:
+                print(f"💰 开仓价格: ${position_info['entry_price']:,.2f}")
+                print(f"📊 持仓数量: {position_info['quantity']:.4f} ETH")
+                print(f"💵 持仓价值: ${position_info['value']:,.2f} USDT")
+                print(f"📈 未实现盈亏: ${position_info['unrealized_pnl']:+,.2f} ({position_info['unrealized_pnl_percent']:+.2f}%)")
+                
+                # 获取当前价格
+                market_data = self.get_market_data(silent=True)
+                if market_data is not None and not market_data.empty:
+                    current_price = market_data['close'].iloc[-1]
+                    print(f"🎯 当前价格: ${current_price:,.2f}")
+                    
+                    # 计算距离开仓价格的变化
+                    price_change = current_price - position_info['entry_price']
+                    price_change_percent = (price_change / position_info['entry_price']) * 100
+                    print(f"📊 价格变化: ${price_change:+,.2f} ({price_change_percent:+.2f}%)")
+            else:
+                print("ℹ️ 当前无持仓")
+            
+            print(f"\n💰 资金状态:")
+            print(f"   初始资金: {self.initial_capital:,.2f} USDT")
+            print(f"   当前资金: {pnl_info['current_capital']:,.2f} USDT")
+            print(f"   可用资金: {pnl_info['available_capital']:,.2f} USDT")
+            print(f"   总盈亏: {pnl_info['total_pnl']:+,.2f} USDT")
+            print(f"   今日盈亏: {pnl_info['daily_pnl']:+,.2f} USDT")
+            
+            print("="*60)
+            
+        except Exception as e:
+            print(f"❌ 显示持仓详情失败: {e}")
+    
+    def monitor_position_manual(self):
+        """手动触发持仓监控"""
+        try:
+            print("\n" + "="*60)
+            print("🔍 持仓监控")
+            print("="*60)
+            
+            # 强制更新持仓监控
+            self.last_position_update = datetime.now() - timedelta(seconds=self.position_monitor_interval + 1)
+            self.monitor_position()
+            
+            print("✅ 持仓监控已更新")
+            print("="*60)
+            
+        except Exception as e:
+            print(f"❌ 持仓监控失败: {e}")
     
     def check_risk_limits(self):
         """检查风险限制"""
@@ -750,16 +1228,23 @@ class TradingSystem:
         try:
             uptime = datetime.now() - self.start_time
             
+            # 获取实时盈亏信息
+            pnl_info = self.get_current_pnl_info()
+            
             # 计算收益率
             total_return = (self.current_capital - self.initial_capital) / self.initial_capital
             daily_return = self.daily_pnl / self.initial_capital
+            unrealized_return = pnl_info['unrealized_pnl'] / self.initial_capital
             
             # 获取交易所合约信息
             exchange_info = self.get_exchange_info()
             
+            # 获取持仓详细信息
+            position_info = self.get_position_info()
+            
             status = {
                 '运行时间': str(uptime).split('.')[0],
-                '当前仓位': self.current_position,
+                '当前仓位': position_info['position_desc'],
                 '最后信号': self.last_signal,
                 '交易次数': self.trade_count,
                 '系统状态': '运行中' if self.running else '已停止',
@@ -767,8 +1252,10 @@ class TradingSystem:
                 '初始资金': f"{self.initial_capital:,.0f} USDT",
                 '当前资金': f"{self.current_capital:,.0f} USDT",
                 '可用资金': f"{self.available_capital:,.0f} USDT",
-                '总收益': f"{self.total_pnl:+,.0f} USDT ({total_return:+.2%})",
+                '总收益': f"{pnl_info['total_pnl']:+,.0f} USDT ({(total_return + unrealized_return):+.2%})",
                 '今日收益': f"{self.daily_pnl:+,.0f} USDT ({daily_return:+.2%})",
+                '未实现盈亏': f"{pnl_info['unrealized_pnl']:+,.0f} USDT ({unrealized_return:+.2%})",
+                '持仓详情': self._format_position_detail(position_info),
                 '今日交易': f"{self.daily_trades}/{self.max_daily_trades}",
                 '交易所': exchange_info.get('exchange', 'Binance'),
                 '合约类型': exchange_info.get('contract_type', '永续合约'),
@@ -985,6 +1472,9 @@ class TradingSystem:
                 if signal is not None:
                     self.execute_trade(signal, market_data)
                 
+                # 监控持仓状态
+                self.monitor_position()
+                
                 # 等待下次循环
                 time.sleep(60)  # 1分钟循环
                 
@@ -1036,6 +1526,31 @@ class TradingSystem:
     def service_mode(self):
         """服务模式运行 - 持续监控信号并记录日志"""
         self.logger.info("🔧 服务模式运行中 - 开始持续信号监控...")
+        
+        # 显示当前持仓状态
+        if self.current_position != 0:
+            position_desc = {1: '多头', -1: '空头'}.get(self.current_position, '未知')
+            print(f"\n📊 当前持仓状态:")
+            print(f"   当前仓位: {position_desc}")
+            print(f"   持仓数量: {self.position_quantity:.4f}")
+            print(f"   持仓价值: {self.position_value:,.0f} USDT")
+            print(f"   入场价格: {self.position_entry_price:.2f}")
+            
+            # 计算未实现盈亏
+            try:
+                unrealized_pnl = self.calculate_unrealized_pnl()
+                print(f"   未实现盈亏: {unrealized_pnl:,.2f} USDT")
+            except:
+                print(f"   未实现盈亏: 计算中...")
+        else:
+            print(f"\n📊 当前无持仓")
+        
+        print(f"📈 交易统计:")
+        print(f"   总交易次数: {self.trade_count}")
+        print(f"   当前资金: {self.current_capital:,.0f} USDT")
+        print(f"   总盈亏: {self.total_pnl:,.2f} USDT")
+        print(f"   今日盈亏: {self.daily_pnl:,.2f} USDT")
+        print()
         
         # 导入持续监控模块
         try:
@@ -1092,13 +1607,18 @@ class TradingSystem:
                 
         except KeyboardInterrupt:
             self.logger.info("📡 收到中断信号")
+            # 直接调用stop方法，它会处理平仓提示
+            self.stop()
         except Exception as e:
             import traceback
             self.logger.error(f"❌ 服务模式异常: {e}")
             self.logger.error(f"❌ 异常堆栈: {traceback.format_exc()}")
-        finally:
-            self.logger.info("🛑 服务模式停止")
+            # 异常情况下直接调用stop方法，它会处理平仓提示
             self.stop()
+        finally:
+            if self.running:  # 如果还没有停止，则停止
+                self.logger.info("🛑 服务模式停止")
+                self.stop()
     
     def interactive_mode(self):
         """交互模式运行"""
@@ -1114,34 +1634,86 @@ class TradingSystem:
                 time.sleep(0.1)
         except KeyboardInterrupt:
             self.logger.info("📡 收到中断信号")
+            # 在交互模式下，询问是否强制平仓
+            if self.current_position != 0:
+                position_desc = {1: '多头', -1: '空头'}.get(self.current_position, '未知')
+                print(f"\n⚠️ 检测到当前持有{position_desc}仓位")
+                print("请选择处理方式:")
+                print("   1. 强制平仓后停止")
+                print("   2. 保持仓位停止")
+                print("   0. 取消停止")
+                
+                try:
+                    choice = input("\n请选择处理方式 (0-2): ").strip()
+                    
+                    if choice == '1':
+                        print("🔄 正在强制平仓...")
+                        self.stop(force_close_position=True)
+                    elif choice == '2':
+                        print(f"⚠️ 保持{position_desc}仓位停止")
+                        self.stop(force_close_position=False)
+                    elif choice == '0':
+                        print("✅ 取消停止，继续运行")
+                        return  # 返回继续运行
+                    else:
+                        print("❌ 无效选择，保持仓位停止")
+                        self.stop(force_close_position=False)
+                        
+                except (KeyboardInterrupt, EOFError):
+                    print("\n⚠️ 用户中断，保持仓位停止")
+                    self.stop(force_close_position=False)
         except Exception as e:
             self.logger.error(f"❌ 交互模式异常: {e}")
             import traceback
             self.logger.error(f"❌ 异常堆栈: {traceback.format_exc()}")
+            # 异常情况下也询问是否强制平仓
+            if self.current_position != 0:
+                position_desc = {1: '多头', -1: '空头'}.get(self.current_position, '未知')
+                print(f"\n⚠️ 系统异常，检测到当前持有{position_desc}仓位")
+                print("是否强制平仓? (y/N): ", end="")
+                try:
+                    choice = input().strip().lower()
+                    if choice in ['y', 'yes', '是']:
+                        print("🔄 正在强制平仓...")
+                        self.stop(force_close_position=True)
+                    else:
+                        print(f"⚠️ 保持{position_desc}仓位停止")
+                        self.stop(force_close_position=False)
+                except (KeyboardInterrupt, EOFError):
+                    print("\n⚠️ 用户中断，保持仓位停止")
+                    self.stop(force_close_position=False)
+            else:
+                self.stop(force_close_position=False)
         finally:
-            self.logger.info("🛑 交互模式停止")
-            self.stop()
+            if self.running:  # 如果还没有停止，则停止
+                self.logger.info("🛑 交互模式停止")
+                self.stop(force_close_position=False)
     
     def show_main_menu(self):
         """显示主菜单"""
-        print("\n" + "="*50)
-        print("🚀 交易系统 - 交互控制台")
-        print("="*50)
+        print("\n" + "="*60)
+        print("🚀 实盘交易系统 - 控制面板")
+        print("="*60)
         print("")
-        print("📊 监控与查看")
-        print("   1. 系统状态")
-        print("   2. 交易历史")
-        print("   3. 性能监控")
+        print("📊 实时监控")
+        print("   1. 系统状态总览")
+        print("   2. 持仓详情")
+        print("   3. 性能分析")
         print("")
-        print("⚙️ 系统控制")
-        print("   4. 系统配置")
+        print("📈 交易管理")
+        print("   4. 交易历史")
+        print("   5. 手动持仓监控")
         print("")
-        print("🔧 高级功能")
-        print("   5. 创建服务文件")
-        print("   6. API密钥配置")
+        print("⚙️ 系统设置")
+        print("   6. 交易配置")
+        print("   7. API密钥管理")
         print("")
-        print("   0. 退出系统")
-        print("="*50)
+        print("🔧 系统工具")
+        print("   8. 创建系统服务")
+        print("   9. 系统日志查看")
+        print("")
+        print("   0. 安全退出")
+        print("="*60)
 
     def interactive_interface(self):
         """交互界面"""
@@ -1149,65 +1721,85 @@ class TradingSystem:
         
         while self.running:
             try:
-                choice = input("\n请选择功能 (0-7): ").strip()
+                choice = input("\n请选择功能 (0-9): ").strip()
                 
+                # 📊 实时监控
                 if choice == '1':
                     self.log_system_status(manual=True)
                     input("\n按回车键继续...")
                     self.show_main_menu()
                 elif choice == '2':
-                    self.show_trade_history()
+                    self.show_position_detail()
                     input("\n按回车键继续...")
                     self.show_main_menu()
                 elif choice == '3':
                     self.show_performance_monitor()
                     input("\n按回车键继续...")
                     self.show_main_menu()
+                
+                # 📈 交易管理
                 elif choice == '4':
-                    self.interactive_config()
-                    # 从配置菜单返回后重新显示主菜单
-                    self.show_main_menu()
-                elif choice == '5':
-                    self.create_service_file()
+                    self.show_trade_history()
                     input("\n按回车键继续...")
                     self.show_main_menu()
+                elif choice == '5':
+                    self.monitor_position_manual()
+                    input("\n按回车键继续...")
+                    self.show_main_menu()
+                
+                # ⚙️ 系统设置
                 elif choice == '6':
+                    self.interactive_config()
+                    self.show_main_menu()
+                elif choice == '7':
                     self.config_api_keys()
                     input("\n按回车键继续...")
                     self.show_main_menu()
+                
+                # 🔧 系统工具
+                elif choice == '8':
+                    self.create_service_file()
+                    input("\n按回车键继续...")
+                    self.show_main_menu()
+                elif choice == '9':
+                    self.show_system_logs()
+                    input("\n按回车键继续...")
+                    self.show_main_menu()
+                
+                # 退出系统
                 elif choice == '0':
-                    # 调用退出确认，根据返回值决定是否真的退出
                     if self.confirm_exit():
-                        break  # 用户确认退出，跳出主循环
+                        break
                     else:
-                        # 用户取消退出，重新显示主菜单
                         self.show_main_menu()
                     
                 # 兼容旧的文字命令
-                elif choice.lower() in ['status', 'config', 'stop', 'help', 'quit', 'exit', 'history']:
+                elif choice.lower() in ['status', 'config', 'stop', 'help', 'quit', 'exit', 'history', 'logs']:
                     command = choice.lower()
                     if command == 'status':
                         self.log_system_status(manual=True)
+                        input("\n按回车键继续...")
                     elif command == 'history':
                         self.show_trade_history()
+                        input("\n按回车键继续...")
                     elif command == 'config':
                         self.interactive_config()
+                    elif command == 'logs':
+                        self.show_system_logs()
+                        input("\n按回车键继续...")
                     elif command == 'stop':
                         print("🛑 正在停止系统...")
                         self.stop()
                         break
-                    elif command == 'service':
-                        self.create_service_file()
                     elif command in ['quit', 'exit']:
-                        # 调用退出确认，根据返回值决定是否真的退出
                         if self.confirm_exit():
-                            break  # 用户确认退出，跳出主循环
+                            break
                         else:
-                            # 用户取消退出，重新显示主菜单
                             self.show_main_menu()
+                    self.show_main_menu()
                     
                 else:
-                    print("❓ 无效选择，请输入 0-6")
+                    print("❓ 无效选择，请输入 0-9")
                     self.show_main_menu()
                     
             except KeyboardInterrupt:
@@ -1219,12 +1811,77 @@ class TradingSystem:
                 self.stop()
                 break
     
-    def stop(self):
-        """停止交易系统"""
+    def stop(self, force_close_position=False, emergency_stop=False):
+        """停止交易系统
+        
+        Args:
+            force_close_position (bool): 是否强制平仓
+            emergency_stop (bool): 紧急停止模式，直接平仓不询问
+        """
         if not self.running:
             return
         
         self.logger.info("🛑 正在停止交易系统...")
+        
+        # 检查是否需要强制平仓
+        if self.current_position != 0:
+            position_desc = {1: '多头', -1: '空头'}.get(self.current_position, '未知')
+            self.logger.warning(f"⚠️ 检测到当前持有{position_desc}仓位")
+            
+            # 紧急停止模式：直接平仓
+            if emergency_stop:
+                print(f"🚨 紧急停止模式 - 强制平仓{position_desc}仓位")
+                self.logger.info(f"🚨 紧急停止模式 - 强制平仓{position_desc}仓位")
+                self.emergency_close_positions()
+                force_close_position = True
+            # 在服务模式下，询问是否平仓
+            elif self.mode == 'service':
+                print(f"\n⚠️ 检测到当前持有{position_desc}仓位")
+                print("请选择处理方式:")
+                print("   1. 强制平仓后停止")
+                print("   2. 保持仓位停止")
+                print("   0. 取消停止")
+                
+                try:
+                    choice = input("\n请选择处理方式 (0-2): ").strip()
+                    
+                    if choice == '1':
+                        print("🔄 正在强制平仓...")
+                        self.logger.info("🔄 正在强制平仓...")
+                        self.emergency_close_positions()
+                        force_close_position = True
+                    elif choice == '2':
+                        print(f"⚠️ 保持{position_desc}仓位停止")
+                        self.logger.warning(f"⚠️ 保持{position_desc}仓位停止系统")
+                        force_close_position = False
+                    elif choice == '0':
+                        print("✅ 取消停止，继续运行")
+                        self.logger.info("✅ 用户取消停止，继续运行")
+                        return  # 返回继续运行
+                    else:
+                        print("❌ 无效选择，保持仓位停止")
+                        self.logger.warning("❌ 无效选择，保持仓位停止系统")
+                        force_close_position = False
+                        
+                except (KeyboardInterrupt, EOFError):
+                    print("\n⚠️ 用户中断，保持仓位停止")
+                    self.logger.warning("⚠️ 用户中断，保持仓位停止系统")
+                    force_close_position = False
+            else:
+                # 交互模式下使用传入的参数
+                if force_close_position:
+                    self.logger.info("🔄 正在强制平仓...")
+                    self.emergency_close_positions()
+                else:
+                    self.logger.warning(f"⚠️ 保持{position_desc}仓位停止系统")
+        
+        # 保存持仓数据和交易历史
+        self.logger.info("💾 正在保存持仓数据...")
+        self.save_position_status()
+        
+        self.logger.info("💾 正在保存交易历史...")
+        self.save_trade_history()
+        
         self.logger.info("📊 停止前线程状态:")
         self.log_thread_status()
         self.running = False
@@ -1263,6 +1920,28 @@ class TradingSystem:
         except Exception as e:
             self.logger.error(f"❌ 等待交互线程时出错: {e}")
         
+        # 显示最终统计信息
+        if self.current_position != 0:
+            position_desc = {1: '多头', -1: '空头'}.get(self.current_position, '未知')
+            print(f"\n📊 最终持仓状态:")
+            print(f"   当前仓位: {position_desc}")
+            print(f"   持仓数量: {self.position_quantity:.4f}")
+            print(f"   持仓价值: {self.position_value:,.0f} USDT")
+            print(f"   入场价格: {self.position_entry_price:.2f}")
+            
+            # 计算未实现盈亏
+            try:
+                unrealized_pnl = self.calculate_unrealized_pnl()
+                print(f"   未实现盈亏: {unrealized_pnl:,.2f} USDT")
+            except:
+                print(f"   未实现盈亏: 计算中...")
+        
+        print(f"\n📈 交易统计:")
+        print(f"   总交易次数: {self.trade_count}")
+        print(f"   当前资金: {self.current_capital:,.0f} USDT")
+        print(f"   总盈亏: {self.total_pnl:,.2f} USDT")
+        print(f"   今日盈亏: {self.daily_pnl:,.2f} USDT")
+        
         # 发送系统停止通知
         try:
             uptime = datetime.now() - self.start_time
@@ -1270,11 +1949,17 @@ class TradingSystem:
                          f'ETHUSDT交易系统已停止\n'
                          f'运行时间: {str(uptime).split(".")[0]}\n'
                          f'总交易次数: {self.trade_count}\n'
-                         f'当前资金: {self.current_capital:,.0f} USDT')
+                         f'当前资金: {self.current_capital:,.0f} USDT\n'
+                         f'总盈亏: {self.total_pnl:,.2f} USDT')
         except Exception as e:
             self.logger.warning(f"Telegram停止通知发送失败: {e}")
         
         self.logger.info("✅ 交易系统已停止")
+    
+    def emergency_stop(self):
+        """紧急停止 - 强制平仓并停止系统"""
+        self.logger.warning("🚨 执行紧急停止 - 强制平仓所有仓位")
+        self.stop(emergency_stop=True)
     
 
     
@@ -1532,6 +2217,7 @@ class TradingSystem:
                     new_position = position_options[int(choice) - 1][0]
                     position_desc = position_options[int(choice) - 1][1]
                     self.current_position = new_position
+                    self.save_position_status()  # 保存持仓状态
                     print(f"✅ 仓位: {position_desc} ({new_position})")
                     return
                 else:
@@ -2108,6 +2794,8 @@ class TradingSystem:
         except Exception as e:
             print(f"❌ 测试失败: {e}")
             print("💡 请检查API配置是否正确")
+        
+        # 不在这里等待，由调用方处理
     
     def toggle_trading_mode(self):
         """切换交易模式"""
@@ -2331,7 +3019,7 @@ WantedBy=multi-user.target
         while True:
             print("\n🚪 退出系统确认")
             
-            # 检查当前仓位
+            # 检查当前仓位（基于本地状态，不查询交易所）
             if self.current_position != 0:
                 position_desc = {1: '多头', -1: '空头'}.get(self.current_position, '未知')
                 print(f"⚠️  当前持有{position_desc}仓位")
@@ -2348,17 +3036,15 @@ WantedBy=multi-user.target
                         continue
                         
                     elif choice == '1':
-                        print("🔄 正在平仓...")
-                        self.current_position = 0
-                        print("✅ 仓位已平仓")
+                        print("🔄 正在强制平仓...")
+                        self.stop(force_close_position=True)
                         print("👋 再见!")
-                        self.stop()
                         return True  # 表示确实退出
                         
                     elif choice == '2':
                         print(f"⚠️  保持{position_desc}仓位退出")
                         print("👋 再见!")
-                        self.stop()
+                        self.stop(force_close_position=False)
                         return True  # 表示确实退出
                         
                     elif choice == '0':
@@ -2374,7 +3060,21 @@ WantedBy=multi-user.target
                     return False  # 表示取消退出
                     
             else:
-                print("✅ 当前无仓位")
+                # 检查交易所真实持仓状态（仅用于信息显示，不影响退出逻辑）
+                try:
+                    if self.exchange_api:
+                        real_position = self.exchange_api.get_position()
+                        if real_position['size'] > 0:
+                            print(f"ℹ️  交易所显示有持仓: {real_position['side']} {real_position['size']}")
+                            print("💡 注意: 本地状态与交易所状态不一致")
+                        else:
+                            print("✅ 当前无仓位")
+                    else:
+                        print("✅ 当前无仓位")
+                except Exception as e:
+                    print("✅ 当前无仓位")
+                    print(f"ℹ️  无法查询交易所状态: {e}")
+                
                 print("确认退出吗?")
                 print("   1. 确认退出")
                 print("   0. 取消退出")
@@ -2388,7 +3088,7 @@ WantedBy=multi-user.target
                         
                     elif choice == '1':
                         print("👋 再见!")
-                        self.stop()
+                        self.stop(force_close_position=False)
                         return True  # 表示确实退出
                         
                     elif choice == '0':
@@ -2426,6 +3126,16 @@ WantedBy=multi-user.target
         print(f"  开空仓: {short_trades}")
         print(f"  平仓: {close_trades}")
         
+        # 计算胜率统计
+        if total_trades > 0:
+            winning_trades = len([t for t in self.trade_history if t.get('pnl', 0) > 0])
+            losing_trades = len([t for t in self.trade_history if t.get('pnl', 0) < 0])
+            win_rate = (winning_trades / total_trades) * 100
+            
+            print(f"  胜率: {win_rate:.1f}% ({winning_trades}/{total_trades})")
+            print(f"  盈利交易: {winning_trades}")
+            print(f"  亏损交易: {losing_trades}")
+        
         # 计算性能统计
         if total_trades > 0:
             # 计算平均信号评分
@@ -2451,9 +3161,9 @@ WantedBy=multi-user.target
         
         # 显示最近的交易记录
         print("📋 最近交易记录:")
-        print("-" * 60)
-        print(f"{'时间':<20} {'类型':<8} {'金额':<12} {'评分':<8} {'仓位':<6}")
-        print("-" * 60)
+        print("-" * 120)
+        print(f"{'时间':<20} {'类型':<8} {'金额':<12} {'评分':<8} {'价格':<10} {'理由':<30} {'仓位':<6}")
+        print("-" * 120)
         
         # 显示最近10条记录
         recent_trades = self.trade_history[-10:] if len(self.trade_history) > 10 else self.trade_history
@@ -2465,6 +3175,11 @@ WantedBy=multi-user.target
             score = f"{trade['signal_score']:.3f}"
             position = trade['position']
             
+            # 获取新字段，兼容旧记录
+            price = trade.get('price', 0)
+            price_display = f"${price:,.0f}" if price > 0 else "N/A"
+            reason = trade.get('reason', '无记录')
+            
             # 添加颜色标识
             if trade_type == 'LONG':
                 trade_type_display = "🟢 开多"
@@ -2473,9 +3188,12 @@ WantedBy=multi-user.target
             else:
                 trade_type_display = "⚪ 平仓"
             
-            print(f"{timestamp:<20} {trade_type_display:<8} {amount:<12} {score:<8} {position:<6}")
+            # 截断理由文本以适应显示
+            reason_display = reason[:28] + "..." if len(reason) > 30 else reason
+            
+            print(f"{timestamp:<20} {trade_type_display:<8} {amount:<12} {score:<8} {price_display:<10} {reason_display:<30} {position:<6}")
         
-        print("-" * 60)
+        print("-" * 120)
         
         # 显示详细统计
         if len(self.trade_history) > 10:
@@ -2521,6 +3239,78 @@ WantedBy=multi-user.target
         print("-" * 80)
         print(f"📝 共 {len(self.trade_history)} 条交易记录")
         print("="*80)
+        
+        # 提供导出选项
+        print("\n💾 导出选项:")
+        print("   1. 导出为CSV文件")
+        print("   2. 导出为JSON文件")
+        print("   0. 返回")
+        
+        try:
+            choice = input("\n请选择导出格式 (0-2): ").strip()
+            if choice == '1':
+                self.export_trade_history('csv')
+            elif choice == '2':
+                self.export_trade_history('json')
+            elif choice == '0':
+                pass
+            else:
+                print("❌ 无效选择")
+        except KeyboardInterrupt:
+            print("\n✅ 返回主菜单")
+    
+    def export_trade_history(self, format='csv'):
+        """导出交易历史"""
+        if not self.trade_history:
+            print("📝 暂无交易历史可导出")
+            return
+        
+        try:
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            
+            if format.lower() == 'csv':
+                import csv
+                filename = f'json/trade_history_{timestamp}.csv'
+                
+                with open(filename, 'w', newline='', encoding='utf-8') as f:
+                    writer = csv.writer(f)
+                    # 写入表头
+                    writer.writerow(['时间', '交易类型', '金额(USDT)', '信号评分', '仓位', '总资金', '可用资金'])
+                    
+                    # 写入数据
+                    for trade in self.trade_history:
+                        writer.writerow([
+                            trade['timestamp'].strftime('%Y-%m-%d %H:%M:%S'),
+                            trade['type'],
+                            trade['amount'],
+                            trade['signal_score'],
+                            trade['position'],
+                            trade['capital'],
+                            trade['available_capital']
+                        ])
+                
+                print(f"✅ 交易历史已导出到: {filename}")
+                
+            elif format.lower() == 'json':
+                filename = f'json/trade_history_{timestamp}.json'
+                
+                # 转换datetime对象为字符串
+                history_to_export = []
+                for trade in self.trade_history:
+                    trade_copy = trade.copy()
+                    trade_copy['timestamp'] = trade_copy['timestamp'].isoformat()
+                    history_to_export.append(trade_copy)
+                
+                with open(filename, 'w', encoding='utf-8') as f:
+                    json.dump(history_to_export, f, indent=2, ensure_ascii=False)
+                
+                print(f"✅ 交易历史已导出到: {filename}")
+                
+            else:
+                print("❌ 不支持的导出格式，请使用 'csv' 或 'json'")
+                
+        except Exception as e:
+            print(f"❌ 导出交易历史失败: {e}")
     
     def show_performance_monitor(self):
         """显示系统性能监控"""
@@ -2649,6 +3439,24 @@ WantedBy=multi-user.target
             self.total_pnl = 0.0
             self.trade_history = []
             
+            # 清空交易历史文件
+            try:
+                history_file = 'json/trade_history.json'
+                if os.path.exists(history_file):
+                    os.remove(history_file)
+                    print("🗑️ 交易历史文件已清空")
+            except Exception as e:
+                print(f"⚠️ 清空交易历史文件失败: {e}")
+            
+            # 清空持仓状态文件
+            try:
+                position_file = 'json/position_status.json'
+                if os.path.exists(position_file):
+                    os.remove(position_file)
+                    print("🗑️ 持仓状态文件已清空")
+            except Exception as e:
+                print(f"⚠️ 清空持仓状态文件失败: {e}")
+            
             # 重置每日计数器
             self.reset_daily_counters()
             
@@ -2697,6 +3505,49 @@ WantedBy=multi-user.target
         for thread_name, status in thread_status.items():
             alive_status = "🟢 运行中" if status['alive'] else "🔴 已停止"
             self.logger.info(f"   {thread_name}: {alive_status} (守护线程: {status['daemon']})")
+
+    def show_system_logs(self):
+        """显示系统日志"""
+        try:
+            print("\n" + "="*60)
+            print("📋 系统日志查看")
+            print("="*60)
+            
+            log_dir = Path('logs')
+            if not log_dir.exists():
+                print("❌ 日志目录不存在")
+                return
+            
+            # 获取最新的日志文件
+            log_files = list(log_dir.glob('trading_*.log'))
+            if not log_files:
+                print("❌ 未找到日志文件")
+                return
+            
+            # 按修改时间排序，获取最新的日志文件
+            latest_log = max(log_files, key=lambda f: f.stat().st_mtime)
+            print(f"📄 日志文件: {latest_log.name}")
+            print(f"📅 修改时间: {datetime.fromtimestamp(latest_log.stat().st_mtime).strftime('%Y-%m-%d %H:%M:%S')}")
+            print("-" * 60)
+            
+            # 读取最后50行日志
+            with open(latest_log, 'r', encoding='utf-8') as f:
+                lines = f.readlines()
+                
+            if lines:
+                print("📋 最近50条日志记录:")
+                print("-" * 60)
+                # 显示最后50行
+                for line in lines[-50:]:
+                    print(line.rstrip())
+            else:
+                print("ℹ️ 日志文件为空")
+                
+            print("-" * 60)
+            print(f"✅ 共显示 {min(50, len(lines))} 条日志记录")
+            
+        except Exception as e:
+            print(f"❌ 读取日志失败: {e}")
 
 
 def create_systemd_service():
