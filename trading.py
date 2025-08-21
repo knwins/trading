@@ -3613,39 +3613,11 @@ WantedBy=multi-user.target
         print(f"❌ 创建服务文件失败: {e}")
 
 
-def select_mode():
-    """选择运行模式"""
-    print("🚀 实盘交易系统")
-    print("请选择运行模式:")
-    print("   1. 交互模式 - 手动控制，实时监控")
-    print("   2. 自动模式 - 后台运行，无人值守")
-    print("   0. 退出系统")
-    
-    while True:
-        try:
-            choice = input("\n请选择模式 (0-2): ").strip()
-            
-            if choice == '1':
-                print("✅ 选择交互模式")
-                return 'interactive'
-            elif choice == '2':
-                print("✅ 选择自动模式")
-                return 'service'
-            elif choice == '0':
-                print("👋 再见!")
-                sys.exit(0)
-            else:
-                print("❓ 无效选择，请输入 0-2")
-                
-        except KeyboardInterrupt:
-            print("\n👋 再见!")
-            sys.exit(0)
-
 def main():
     """主函数"""
     parser = argparse.ArgumentParser(description='实盘交易系统')
     parser.add_argument('--mode', choices=['interactive', 'service'], 
-                       help='运行模式（如不指定将提示选择）')
+                       default='interactive', help='运行模式')
     parser.add_argument('--create-service', action='store_true',
                        help='创建 systemd 服务文件')
     parser.add_argument('--config', type=str, help='配置文件路径')
@@ -3657,25 +3629,11 @@ def main():
         create_systemd_service()
         return
     
-    # 选择运行模式
-    if args.mode:
-        mode = args.mode
-    else:
-        mode = select_mode()
+    # 使用默认模式或指定模式
+    mode = args.mode
     
-    # 加载配置
-    config = {}
-    if args.config and os.path.exists(args.config):
-        try:
-            import importlib.util
-            spec = importlib.util.spec_from_file_location("config", args.config)
-            config_module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(config_module)
-            config = {k: v for k, v in config_module.__dict__.items() 
-                     if not k.startswith('_')}
-        except Exception as e:
-            print(f"❌ 加载配置文件失败: {e}")
-            return
+    # 使用默认配置
+    print("🚀 实盘交易系统启动中...")
     
     # 创建并启动交易系统
     trading_system = None

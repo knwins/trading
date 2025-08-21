@@ -994,38 +994,73 @@ class DeepSeekAnalyzer:
             # 使用更长的超时时间和连接超时
             timeout_config = (10, 60)  # (连接超时, 读取超时)
             
-            logger.info(f"正在调用DeepSeek API: {url}")
+            # 记录请求参数
+            logger.info(f"🔍 DeepSeek API请求:")
+            logger.info(f"  URL: {url}")
+            logger.info(f"  模型: {payload['model']}")
+            logger.info(f"  温度: {payload['temperature']}")
+            logger.info(f"  最大令牌: {payload['max_tokens']}")
+            logger.info(f"  系统提示: {payload['messages'][0]['content'][:100]}...")
+            logger.info(f"  用户提示: {payload['messages'][1]['content'][:200]}...")
+            
             response = self.session.post(url, json=payload, timeout=timeout_config)
             response.raise_for_status()
             
             result = response.json()
-            logger.info("DeepSeek API调用成功")
+            
+            # 记录响应数据
+            logger.info(f"✅ DeepSeek API响应:")
+            logger.info(f"  状态码: {response.status_code}")
+            logger.info(f"  响应时间: {response.elapsed.total_seconds():.2f}秒")
+            if 'choices' in result and len(result['choices']) > 0:
+                content = result['choices'][0]['message']['content']
+                logger.info(f"  响应内容长度: {len(content)} 字符")
+                logger.info(f"  响应内容预览: {content[:300]}...")
+                if len(content) > 300:
+                    logger.info(f"  完整响应内容: {content}")
+            else:
+                logger.warning(f"  响应格式异常: {result}")
+            
             return result['choices'][0]['message']['content']
             
         except requests.exceptions.Timeout as e:
-            logger.error(f"DeepSeek API超时: {e}")
-            logger.info("建议检查网络连接或稍后重试")
+            logger.error(f"⏰ DeepSeek API超时: {e}")
+            logger.info("  💡 建议: 检查网络连接或稍后重试")
+            logger.info(f"  📊 超时配置: 连接={timeout_config[0]}秒, 读取={timeout_config[1]}秒")
             return None
         except requests.exceptions.ConnectionError as e:
-            logger.error(f"DeepSeek API连接错误: {e}")
-            logger.info("建议检查网络连接或API服务状态")
+            logger.error(f"🌐 DeepSeek API连接错误: {e}")
+            logger.info("  💡 建议: 检查网络连接或API服务状态")
+            logger.info(f"  🔗 目标URL: {url}")
             return None
         except requests.exceptions.HTTPError as e:
-            logger.error(f"DeepSeek API HTTP错误: {e}")
+            logger.error(f"❌ DeepSeek API HTTP错误: {e}")
             if hasattr(e.response, 'status_code'):
-                logger.error(f"HTTP状态码: {e.response.status_code}")
+                logger.error(f"  HTTP状态码: {e.response.status_code}")
+                logger.error(f"  响应头: {dict(e.response.headers)}")
+                try:
+                    error_detail = e.response.json()
+                    logger.error(f"  错误详情: {error_detail}")
+                except:
+                    logger.error(f"  响应内容: {e.response.text[:500]}...")
+                
                 if e.response.status_code == 401:
-                    logger.error("API密钥可能无效或已过期")
+                    logger.error("  💡 建议: API密钥可能无效或已过期")
                 elif e.response.status_code == 429:
-                    logger.error("API调用频率过高，请稍后重试")
+                    logger.error("  💡 建议: API调用频率过高，请稍后重试")
                 elif e.response.status_code >= 500:
-                    logger.error("服务器内部错误，请稍后重试")
+                    logger.error("  💡 建议: 服务器内部错误，请稍后重试")
             return None
         except json.JSONDecodeError as e:
-            logger.error(f"DeepSeek API响应JSON解析失败: {e}")
+            logger.error(f"📄 DeepSeek API响应JSON解析失败: {e}")
+            logger.error(f"  📍 错误位置: 行{e.lineno}, 列{e.colno}")
+            logger.error(f"  📝 原始响应: {response.text[:500]}...")
             return None
         except Exception as e:
-            logger.error(f"DeepSeek API查询失败: {e}")
+            logger.error(f"❓ DeepSeek API查询失败: {e}")
+            logger.error(f"  🔍 异常类型: {type(e).__name__}")
+            import traceback
+            logger.error(f"  📋 详细堆栈: {traceback.format_exc()}")
             return None
     
     def get_real_time_analysis(self, force_refresh: bool = False) -> Dict[str, Any]:
