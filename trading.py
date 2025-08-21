@@ -32,6 +32,7 @@ try:
     from core.strategy import SharpeOptimizedStrategy
     from core.data_loader import DataLoader
     from core.feature_engineer import FeatureEngineer
+    from utils.telegram_notifier import notify_signal, notify_trade, notify_status, notify_error
 except ImportError as e:
     print(f"❌ 导入模块失败: {e}")
     print("请确保在项目根目录运行此脚本")
@@ -406,6 +407,27 @@ class TradingSystem:
             signal_info = self.strategy.generate_signals(features, silent=silent)
             
             if signal_info is not None and isinstance(signal_info, dict):
+                # 发送信号通知
+                try:
+                    signal_value = signal_info.get('signal', 0)
+                    signal_score = signal_info.get('final_score', 0)
+                    current_price = market_data['close'].iloc[-1] if not market_data.empty else 0
+                    
+                    # 获取信号原因
+                    reason = signal_info.get('reason', '')
+                    if not reason:
+                        if signal_value == 1:
+                            reason = "技术指标确认多头趋势"
+                        elif signal_value == -1:
+                            reason = "技术指标确认空头趋势"
+                        else:
+                            reason = "市场趋势不明确，观望"
+                    
+                    notify_signal(signal_value, current_price, signal_score, reason)
+                except Exception as e:
+                    if not silent:
+                        self.logger.warning(f"Telegram信号通知发送失败: {e}")
+                
                 return signal_info
             
             return None
@@ -415,7 +437,7 @@ class TradingSystem:
                 self.logger.error(f"❌ 生成信号失败: {e}")
             return None
     
-    def execute_trade(self, signal):
+    def execute_trade(self, signal, market_data=None):
         """执行交易"""
         try:
             if signal is None:
@@ -455,8 +477,20 @@ class TradingSystem:
                         self.current_position = 1
                         self.available_capital -= trade_amount
                         self.record_trade('LONG', trade_amount, signal_score)
+                        
+                        # 发送Telegram通知
+                        try:
+                            current_price = market_data['close'].iloc[-1] if not market_data.empty else 0
+                            notify_trade('open', 'long', current_price, trade_amount)
+                        except Exception as e:
+                            self.logger.warning(f"Telegram通知发送失败: {e}")
                     else:
                         self.logger.error(f"❌ 真实开多仓失败: {result['error']}")
+                        # 发送错误通知
+                        try:
+                            notify_error(f"开多仓失败: {result['error']}", "真实交易执行")
+                        except Exception as e:
+                            self.logger.warning(f"Telegram错误通知发送失败: {e}")
                 else:
                     # 模拟交易
                     trade_amount = self.available_capital * position_size
@@ -464,6 +498,13 @@ class TradingSystem:
                     self.current_position = 1
                     self.available_capital -= trade_amount
                     self.record_trade('LONG', trade_amount, signal_score)
+                    
+                    # 发送Telegram通知（模拟交易）
+                    try:
+                        current_price = market_data['close'].iloc[-1] if not market_data.empty else 0
+                        notify_trade('open', 'long', current_price, trade_amount)
+                    except Exception as e:
+                        self.logger.warning(f"Telegram通知发送失败: {e}")
                 
             elif signal_value == -1 and self.current_position >= 0:
                 # 开空仓
@@ -488,15 +529,33 @@ class TradingSystem:
                         self.current_position = -1
                         self.available_capital -= trade_amount
                         self.record_trade('SHORT', trade_amount, signal_score)
+                        
+                        # 发送Telegram通知
+                        try:
+                            current_price = market_data['close'].iloc[-1] if not market_data.empty else 0
+                            notify_trade('open', 'short', current_price, trade_amount)
+                        except Exception as e:
+                            self.logger.warning(f"Telegram通知发送失败: {e}")
                     else:
                         self.logger.error(f"❌ 真实开空仓失败: {result['error']}")
+                        # 发送错误通知
+                        try:
+                            notify_error(f"开空仓失败: {result['error']}", "真实交易执行")
+                        except Exception as e:
+                            self.logger.warning(f"Telegram错误通知发送失败: {e}")
                 else:
                     # 模拟交易
                     trade_amount = self.available_capital * position_size
                     self.logger.info(f"🔴 模拟开空仓 - 金额: {trade_amount:,.0f} USDT, 仓位: {position_size:.1%}")
                     self.current_position = -1
                     self.available_capital -= trade_amount
-                    self.record_trade('SHORT', trade_amount, signal_score)
+                    self.record_trade('SHORT', trade_amount, signal_score)                    
+                    # 发送Telegram通知（模拟交易）
+                    try:
+                        current_price = market_data['close'].iloc[-1] if not market_data.empty else 0
+                        notify_trade('open', 'short', current_price, trade_amount)
+                    except Exception as e:
+                        self.logger.warning(f"Telegram通知发送失败: {e}")
                 
             elif signal_value == 0 and self.current_position != 0:
                 # 平仓
@@ -512,14 +571,33 @@ class TradingSystem:
                         self.current_position = 0
                         self.available_capital = self.current_capital
                         self.record_trade('CLOSE', 0, signal_score)
+                        
+                        # 发送Telegram通知
+                        try:
+                            current_price = market_data['close'].iloc[-1] if not market_data.empty else 0
+                            notify_trade('close', 'long' if self.current_position == 1 else 'short', current_price, 0)
+                        except Exception as e:
+                            self.logger.warning(f"Telegram通知发送失败: {e}")
                     else:
                         self.logger.error(f"❌ 真实平仓失败: {result['error']}")
+                        # 发送错误通知
+                        try:
+                            notify_error(f"平仓失败: {result['error']}", "真实交易执行")
+                        except Exception as e:
+                            self.logger.warning(f"Telegram错误通知发送失败: {e}")
                 else:
                     # 模拟平仓
                     self.logger.info(f"⚪ 模拟平仓 ({position_desc}) - 当前仓位: {self.current_position}")
                     self.current_position = 0
                     self.available_capital = self.current_capital
                     self.record_trade('CLOSE', 0, signal_score)
+                    
+                    # 发送Telegram通知（模拟平仓）
+                    try:
+                        current_price = market_data['close'].iloc[-1] if not market_data.empty else 0
+                        notify_trade('close', 'long' if self.current_position == 1 else 'short', current_price, 0)
+                    except Exception as e:
+                        self.logger.warning(f"Telegram通知发送失败: {e}")
             
             self.last_signal = signal_value
             
@@ -712,10 +790,10 @@ class TradingSystem:
             if abs(signal_score) > 0.3:
                 if signal == 1 and self.current_position <= 0:
                     self.logger.info(f"🚀 执行做多交易 - 价格: {price:.2f} - 评分: {signal_score:.3f}")
-                    # 这里可以调用实际的交易方法
+                    self.execute_trade(signal_info, current_data)
                 elif signal == -1 and self.current_position >= 0:
                     self.logger.info(f"📉 执行做空交易 - 价格: {price:.2f} - 评分: {signal_score:.3f}")
-                    # 这里可以调用实际的交易方法
+                    self.execute_trade(signal_info, current_data)
                 else:
                     self.logger.info(f"⏸️ 信号: {signal} - 当前仓位: {self.current_position} - 不执行交易")
             else:
@@ -841,7 +919,7 @@ class TradingSystem:
                 
                 # 执行交易
                 if signal is not None:
-                    self.execute_trade(signal)
+                    self.execute_trade(signal, market_data)
                 
                 # 等待下次循环
                 time.sleep(60)  # 1分钟循环
@@ -867,6 +945,16 @@ class TradingSystem:
         
         self.running = True
         self.logger.info("🚀 启动交易系统")
+        
+        # 发送系统启动通知
+        try:
+            notify_status('start', '交易系统启动', 
+                         f'ETHUSDT交易系统已成功启动\n'
+                         f'运行模式: {self.mode}\n'
+                         f'初始资金: {self.initial_capital:,.0f} USDT\n'
+                         f'正在监控市场信号...')
+        except Exception as e:
+            self.logger.warning(f"Telegram启动通知发送失败: {e}")
         
         # 启动交易线程
         self.trading_thread = threading.Thread(target=self.trading_loop, daemon=True)
@@ -1063,6 +1151,17 @@ class TradingSystem:
             self.trading_thread.join(timeout=5)
         if hasattr(self, 'heartbeat_thread'):
             self.heartbeat_thread.join(timeout=5)
+        
+        # 发送系统停止通知
+        try:
+            uptime = datetime.now() - self.start_time
+            notify_status('stop', '交易系统停止', 
+                         f'ETHUSDT交易系统已停止\n'
+                         f'运行时间: {str(uptime).split(".")[0]}\n'
+                         f'总交易次数: {self.trade_count}\n'
+                         f'当前资金: {self.current_capital:,.0f} USDT')
+        except Exception as e:
+            self.logger.warning(f"Telegram停止通知发送失败: {e}")
         
         self.logger.info("✅ 交易系统已停止")
     
@@ -1297,7 +1396,7 @@ class TradingSystem:
         for i, (pos, desc) in enumerate(position_options, 1):
             current = " (当前)" if pos == current_position else ""
             print(f"  {i}. {desc} ({pos}){current}")
-        print("   0. 返回")
+        print("  0. 返回")
         print("="*50)
     
     def config_initial_position(self):
