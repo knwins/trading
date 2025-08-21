@@ -5,20 +5,20 @@
 """
 
 # 导入核心模块
-from .strategy import BaseStrategy, TradingStrategy
+from .strategy import SharpeOptimizedStrategy, SignalFilter
 from .data_loader import DataLoader
 from .feature_engineer import FeatureEngineer
 from .backtester import Backtester
-from .exchange_api import BinanceAPI
+from .exchange_api import RealExchangeAPI
 
 # 导出主要类
 __all__ = [
-    'BaseStrategy',
-    'TradingStrategy', 
+    'SharpeOptimizedStrategy',
+    'SignalFilter',
     'DataLoader',
     'FeatureEngineer',
     'Backtester',
-    'BinanceAPI'
+    'RealExchangeAPI'
 ]
 
 # 版本信息

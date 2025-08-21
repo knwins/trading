@@ -7,7 +7,7 @@ DeepSeek集成模块
 # 导入DeepSeek模块
 from .deepseek_analyzer import DeepSeekAnalyzer
 from .deepseek_signal_integrator import DeepSeekSignalIntegrator
-from .quick_deepseek_demo import run_quick_demo
+from .quick_deepseek_demo import main as run_quick_demo
 
 # 导出主要类
 __all__ = [
