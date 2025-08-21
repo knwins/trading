@@ -5,12 +5,16 @@
 
 import pandas as pd
 import numpy as np
+import sys
+import os
 from datetime import datetime, timedelta
 import time
 import warnings
-from data_loader import DataLoader
-from feature_engineer import FeatureEngineer
-from strategy import SharpeOptimizedStrategy
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from core.data_loader import DataLoader
+from core.feature_engineer import FeatureEngineer
+from core.strategy import SharpeOptimizedStrategy
 from config import *
 
 warnings.filterwarnings('ignore')
@@ -60,7 +64,7 @@ def get_current_signal():
 
 def display_signal(signal_info, current_data):
     """显示信号信息"""
-    if not signal_info:
+    if signal_info is None:
         return
     
     print("\n" + "="*80)
@@ -138,7 +142,7 @@ def main():
     # 获取当前信号
     signal_info, current_data = get_current_signal()
     
-    if signal_info:
+    if signal_info is not None:
         display_signal(signal_info, current_data)
     else:
         print("❌ 无法获取信号")

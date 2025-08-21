@@ -8,18 +8,28 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
+import sys
+import os
 from datetime import datetime, timedelta
 import warnings
 warnings.filterwarnings('ignore')
 
-from data_loader import DataLoader
-from feature_engineer import FeatureEngineer
-from strategy import SharpeOptimizedStrategy
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from core.data_loader import DataLoader
+from core.feature_engineer import FeatureEngineer
+from core.strategy import SharpeOptimizedStrategy
 from config import TRADING_CONFIG, BACKTEST_CONFIG
 
-# 设置中文字体
-plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei']
-plt.rcParams['axes.unicode_minus'] = False
+# 设置中文字体 - 修复matplotlib字体识别问题
+try:
+    from utils.fix_matplotlib_fonts import force_add_fonts, configure_fonts
+    force_add_fonts()
+    configure_fonts()
+except ImportError:
+    # 备用方案
+    plt.rcParams['font.sans-serif'] = ['WenQuanYi Micro Hei', 'WenQuanYi Zen Hei', 'SimHei', 'Microsoft YaHei', 'DejaVu Sans']
+    plt.rcParams['axes.unicode_minus'] = False
 
 
 def calculate_all_signals_sharpe():

@@ -8,7 +8,7 @@ import os
 from datetime import datetime
 
 # 配置文件路径
-CONFIG_FILE = 'user_config.json'
+CONFIG_FILE = 'json/user_config.json'
 
 def save_user_config(config_data):
     """保存用户配置到文件"""

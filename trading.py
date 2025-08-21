@@ -29,9 +29,9 @@ from pathlib import Path
 # 导入项目模块
 try:
     from config import *
-    from strategy import SharpeOptimizedStrategy
-    from data_loader import DataLoader
-    from feature_engineer import FeatureEngineer
+    from core.strategy import SharpeOptimizedStrategy
+    from core.data_loader import DataLoader
+    from core.feature_engineer import FeatureEngineer
 except ImportError as e:
     print(f"❌ 导入模块失败: {e}")
     print("请确保在项目根目录运行此脚本")
@@ -43,12 +43,12 @@ class TradingSystem:
     def __init__(self, mode='interactive'):
         """初始化交易系统"""
         self.mode = mode
-        self.running = True  # 改为True，表示系统已启动
+        self.running = False  # 初始化为False，等待start()方法启动
         self.start_time = datetime.now()
         
         # 加载用户配置
         try:
-            from user_config import apply_user_config
+            from utils.fix_config import apply_user_config
             success, message = apply_user_config()
             if success:
                 print(f"✅ {message}")
@@ -105,7 +105,7 @@ class TradingSystem:
     def setup_real_trading(self):
         """初始化真实交易API"""
         try:
-            from exchange_api import RealExchangeAPI
+            from core.exchange_api import RealExchangeAPI
             
             # 从配置文件加载API密钥
             api_key = ''
@@ -117,7 +117,7 @@ class TradingSystem:
             
             # 如果环境变量没有，尝试从配置文件加载
             if not api_key or not secret_key:
-                config_file = 'api_config.json'
+                config_file = 'json/api_config.json'
                 if os.path.exists(config_file):
                     try:
                         with open(config_file, 'r', encoding='utf-8') as f:
@@ -247,7 +247,9 @@ class TradingSystem:
     
     def signal_handler(self, signum, frame):
         """信号处理器"""
+        import traceback
         self.logger.info(f"📡 收到信号 {signum}，正在停止系统...")
+        self.logger.info(f"📡 信号来源: {traceback.format_stack()[-3:]}")
         
         # 在交互模式下，提供用户选择
         if self.mode == 'interactive':
@@ -661,6 +663,67 @@ class TradingSystem:
             if self.mode != 'interactive':
                 self.logger.error(f"❌ 记录系统状态失败: {e}")
     
+    def log_signal_info(self, signal_info, current_data, iteration):
+        """记录信号信息"""
+        try:
+            # 获取信号信息
+            signal = signal_info.get('signal', 0)  # 1=做多, -1=做空, 0=观望
+            signal_score = signal_info.get('signal_score', 0)  # 综合评分
+            base_score = signal_info.get('base_score', 0)  # 基础评分
+            trend_score = signal_info.get('trend_score', 0)  # 趋势评分
+            
+            # 处理 current_data 可能是 pandas Series 的情况
+            if hasattr(current_data, 'get'):
+                # 如果是字典
+                price = current_data.get('close', 0)
+                timestamp = current_data.get('timestamp', '')
+            else:
+                # 如果是 pandas Series
+                price = current_data.get('close', 0) if hasattr(current_data, 'get') else getattr(current_data, 'close', 0)
+                timestamp = getattr(current_data, 'timestamp', '')
+            
+            # 信号类型描述
+            signal_desc = {1: '做多', -1: '做空', 0: '观望'}.get(signal, '未知')
+            
+            self.logger.info(f"📊 第{iteration}次信号 - {signal_desc} (评分: {signal_score:.3f}, 基础: {base_score:.3f}, 趋势: {trend_score:.3f}) - 价格: {price:.2f}")
+            
+            # 更新最后信号
+            self.last_signal = signal
+            
+        except Exception as e:
+            self.logger.error(f"❌ 记录信号信息失败: {e}")
+    
+    def check_and_execute_trade(self, signal_info, current_data):
+        """检查并执行交易"""
+        try:
+            # 获取信号信息
+            signal = signal_info.get('signal', 0)  # 1=做多, -1=做空, 0=观望
+            signal_score = signal_info.get('signal_score', 0)  # 综合评分
+            
+            # 处理 current_data 可能是 pandas Series 的情况
+            if hasattr(current_data, 'get'):
+                # 如果是字典
+                price = current_data.get('close', 0)
+            else:
+                # 如果是 pandas Series
+                price = current_data.get('close', 0) if hasattr(current_data, 'get') else getattr(current_data, 'close', 0)
+            
+            # 交易逻辑：信号评分大于0.3才执行
+            if abs(signal_score) > 0.3:
+                if signal == 1 and self.current_position <= 0:
+                    self.logger.info(f"🚀 执行做多交易 - 价格: {price:.2f} - 评分: {signal_score:.3f}")
+                    # 这里可以调用实际的交易方法
+                elif signal == -1 and self.current_position >= 0:
+                    self.logger.info(f"📉 执行做空交易 - 价格: {price:.2f} - 评分: {signal_score:.3f}")
+                    # 这里可以调用实际的交易方法
+                else:
+                    self.logger.info(f"⏸️ 信号: {signal} - 当前仓位: {self.current_position} - 不执行交易")
+            else:
+                self.logger.info(f"⚠️ 信号评分不足 ({signal_score:.3f}) - 不执行交易")
+                
+        except Exception as e:
+            self.logger.error(f"❌ 检查交易执行失败: {e}")
+    
     def get_exchange_info(self):
         """获取交易所合约信息"""
         try:
@@ -819,14 +882,58 @@ class TradingSystem:
             self.service_mode()
     
     def service_mode(self):
-        """服务模式运行"""
-        self.logger.info("🔧 服务模式运行中...")
+        """服务模式运行 - 持续监控信号并记录日志"""
+        self.logger.info("🔧 服务模式运行中 - 开始持续信号监控...")
+        
+        # 导入持续监控模块
+        try:
+            from continuous_monitor import SignalMonitor
+            monitor = SignalMonitor()
+            self.logger.info("✅ 信号监控模块初始化完成")
+        except Exception as e:
+            self.logger.error(f"❌ 信号监控模块初始化失败: {e}")
+            return
+        
+        # 设置监控间隔（秒）
+        monitor_interval = 60  # 每分钟检查一次
+        iteration = 0
+        
         try:
             while self.running:
-                time.sleep(1)
+                iteration += 1
+                current_time = datetime.now()
+                
+                # 记录监控开始
+                self.logger.info(f"📡 第{iteration}次信号检查 - {current_time.strftime('%Y-%m-%d %H:%M:%S')}")
+                
+                # 获取当前信号
+                signal_info, current_data = monitor.get_current_signal()
+                
+                # 修复pandas Series布尔判断问题
+                if signal_info is not None and current_data is not None:
+                    # 记录信号信息
+                    self.log_signal_info(signal_info, current_data, iteration)
+                    
+                    # 检查是否需要执行交易
+                    self.check_and_execute_trade(signal_info, current_data)
+                else:
+                    self.logger.warning(f"⚠️ 第{iteration}次检查 - 无法获取信号数据")
+                
+                # 每10次检查记录一次系统状态
+                if iteration % 10 == 0:
+                    self.log_system_status()
+                
+                # 等待下次检查
+                time.sleep(monitor_interval)
+                
         except KeyboardInterrupt:
             self.logger.info("📡 收到中断信号")
+        except Exception as e:
+            import traceback
+            self.logger.error(f"❌ 服务模式异常: {e}")
+            self.logger.error(f"❌ 异常堆栈: {traceback.format_exc()}")
         finally:
+            self.logger.info("🛑 服务模式停止")
             self.stop()
     
     def interactive_mode(self):
@@ -1576,9 +1683,9 @@ class TradingSystem:
         
         # 检查API密钥状态
         api_key_exists = False
-        if os.path.exists('api_config.json'):
+        if os.path.exists('json/api_config.json'):
             try:
-                with open('api_config.json', 'r', encoding='utf-8') as f:
+                with open('json/api_config.json', 'r', encoding='utf-8') as f:
                     api_config = json.load(f)
                 if api_config.get('api_key') and api_config.get('secret_key'):
                     api_key_exists = True
@@ -1624,9 +1731,9 @@ class TradingSystem:
         print("\n📊 API密钥状态")
         print("="*30)
         
-        if os.path.exists('api_config.json'):
+        if os.path.exists('json/api_config.json'):
             try:
-                with open('api_config.json', 'r', encoding='utf-8') as f:
+                with open('json/api_config.json', 'r', encoding='utf-8') as f:
                     api_config = json.load(f)
                 
                 api_key = api_config.get('api_key', '')
@@ -1657,8 +1764,8 @@ class TradingSystem:
         confirm = input("确定要删除API密钥吗? (y/N): ").strip().lower()
         if confirm in ['y', 'yes', '是']:
             try:
-                if os.path.exists('api_config.json'):
-                    os.remove('api_config.json')
+                if os.path.exists('json/api_config.json'):
+                    os.remove('json/api_config.json')
                     print("✅ API密钥配置文件已删除")
                 
                 # 清除环境变量
@@ -1702,7 +1809,7 @@ class TradingSystem:
                 'timestamp': datetime.now().isoformat()
             }
             
-            config_file = 'api_config.json'
+            config_file = 'json/api_config.json'
             try:
                 with open(config_file, 'w', encoding='utf-8') as f:
                     json.dump(api_config, f, indent=2, ensure_ascii=False)
@@ -1722,7 +1829,7 @@ class TradingSystem:
             # 重新初始化API连接
             print("🔄 正在测试API连接...")
             try:
-                from exchange_api import RealExchangeAPI
+                from core.exchange_api import RealExchangeAPI
                 self.exchange_api = RealExchangeAPI(
                     api_key=api_key,
                     secret_key=secret_key,
@@ -1851,14 +1958,14 @@ class TradingSystem:
             }
             
             # 保存配置到文件
-            from user_config import save_user_config
+            from utils.fix_config import save_user_config
             success, message = save_user_config(config_to_save)
             
             if success:
                 print("✅ 交易配置已保存")
                 print("✅ 风险控制已保存")
                 print("✅ 资金管理已保存")
-                print("✅ 配置已保存到 user_config.json")
+                print("✅ 配置已保存到 json/user_config.json")
                 print("\n📝 配置将在下次启动时自动加载")
             else:
                 print(f"❌ 保存失败: {message}")
@@ -2290,7 +2397,7 @@ WantedBy=multi-user.target
         
         try:
             # 删除配置文件
-            from user_config import reset_to_default_config
+            from utils.fix_config import reset_to_default_config
             success, message = reset_to_default_config()
             
             if success:

@@ -42,13 +42,26 @@
 trading/
 ├── main.py                 # 主程序入口
 ├── trading.py             # 交易系统核心
-├── strategy.py            # 策略实现
-├── data_loader.py         # 数据加载器
-├── feature_engineer.py    # 特征工程
-├── backtester.py          # 回测引擎
-├── exchange_api.py        # 交易所API
+├── core/                  # 核心模块
+│   ├── strategy.py        # 策略实现
+│   ├── data_loader.py     # 数据加载器
+│   ├── feature_engineer.py # 特征工程
+│   ├── backtester.py      # 回测引擎
+│   └── exchange_api.py    # 交易所API
 ├── config.py              # 系统配置
-├── user_config.py         # 用户配置管理
+├── json/                  # JSON配置文件目录
+│   ├── user_config.json   # 用户配置
+│   └── api_config.json    # API配置
+├── utils/                 # 工具模块
+│   ├── fix_config.py      # 配置修复工具
+│   └── fix_matplotlib_fonts.py # 字体修复工具
+├── tools/                 # 工具脚本
+│   ├── signal_test.py     # 信号测试
+│   ├── signals_sharpe.py  # 夏普比率分析
+│   └── continuous_monitor.py # 持续监控
+├── deepseek/              # DeepSeek集成模块
+│   ├── deepseek_analyzer.py # DeepSeek分析器
+│   └── deepseek_signal_integrator.py # 信号集成器
 ├── install.sh             # 安装脚本
 ├── trading-system.service # 系统服务配置
 ├── requirements.txt       # Python依赖
@@ -71,7 +84,7 @@ trading/
 
 ```bash
 # 下载项目
-git clone <https://github.com/knwins/trading.git>
+git clone https://github.com/knwins/trading.git
 cd trading
 
 # 运行安装脚本
@@ -163,15 +176,15 @@ TELEGRAM_CHAT_ID=your_chat_id_here
 
 ### 用户配置
 
-使用 `user_config.py` 管理自定义配置：
+使用 `utils/fix_config.py` 管理自定义配置：
 
 ```python
 # 加载用户配置
-from user_config import apply_user_config
+from utils.fix_config import apply_user_config
 apply_user_config()
 
 # 保存用户配置
-from user_config import save_user_config
+from utils.fix_config import save_user_config
 config_data = {
     'TRADING_CONFIG': {
         'SYMBOL': 'BTCUSDT',
@@ -209,10 +222,10 @@ python38 main.py --mode backtest --start-date 2024-01-01 --end-date 2024-12-31
 
 ```bash
 # 测试交易信号
-python38 signal_test.py
+python38 tools/signal_test.py
 
 # 夏普比率分析
-python38 signals_sharpe.py
+python38 tools/signals_sharpe.py
 ```
 
 ### 服务管理
@@ -304,15 +317,29 @@ trading/
 ├── core/                   # 核心模块
 │   ├── strategy.py        # 策略实现
 │   ├── data_loader.py     # 数据加载
-│   └── feature_engineer.py # 特征工程
-├── api/                   # API模块
+│   ├── feature_engineer.py # 特征工程
+│   ├── backtester.py      # 回测引擎
 │   └── exchange_api.py    # 交易所API
 ├── utils/                 # 工具模块
-│   ├── config.py         # 配置管理
-│   └── user_config.py    # 用户配置
-├── tests/                 # 测试模块
+│   ├── fix_config.py     # 用户配置管理
+│   └── fix_matplotlib_fonts.py # 字体修复工具
+├── tools/                 # 工具脚本
 │   ├── signal_test.py    # 信号测试
-│   └── signals_sharpe.py # 性能分析
+│   ├── signals_sharpe.py # 性能分析
+│   ├── continuous_monitor.py # 持续监控
+│   ├── quick_signal.py   # 快速信号
+│   └── real_time_signals.py # 实时信号
+├── deepseek/              # DeepSeek集成
+│   ├── deepseek_analyzer.py # DeepSeek分析器
+│   ├── deepseek_signal_integrator.py # 信号集成器
+│   └── quick_deepseek_demo.py # 快速演示
+├── json/                  # JSON配置文件目录
+│   ├── user_config.json   # 用户配置
+│   └── api_config.json    # API配置
+├── tests/                 # 测试模块
+├── docs/                  # 文档目录
+│   ├── DeepSeek_README.md # DeepSeek说明
+│   └── DeepSeek模式配置说明.md # 配置说明
 └── scripts/              # 脚本模块
     ├── install.sh        # 安装脚本
     └── trading-system.service # 服务配置
@@ -320,7 +347,7 @@ trading/
 
 ### 添加新策略
 
-1. 在 `strategy.py` 中创建策略类：
+1. 在 `core/strategy.py` 中创建策略类：
 
 ```python
 class MyStrategy(BaseStrategy):
@@ -335,7 +362,7 @@ class MyStrategy(BaseStrategy):
 2. 在 `main.py` 中注册策略：
 
 ```python
-from strategy import MyStrategy
+from core.strategy import MyStrategy
 
 # 使用新策略
 strategy = MyStrategy(config)
@@ -343,7 +370,7 @@ strategy = MyStrategy(config)
 
 ### 扩展技术指标
 
-在 `feature_engineer.py` 中添加新指标：
+在 `core/feature_engineer.py` 中添加新指标：
 
 ```python
 def calculate_my_indicator(data, period=14):
@@ -401,7 +428,7 @@ sudo -u trading /opt/trading/venv/bin/python --version
 ping api.binance.com
 
 # 验证API密钥
-python38 -c "from exchange_api import BinanceAPI; api = BinanceAPI(); print(api.test_connection())"
+python38 -c "from core.exchange_api import BinanceAPI; api = BinanceAPI(); print(api.test_connection())"
 ```
 
 #### 5. 虚拟环境权限问题
@@ -520,10 +547,10 @@ tail -f /opt/trading/logs/trading_signals_*.log
 
 ## 📞 联系方式
 
-- **项目维护者**: [xniu.io]
-- **项目网址**: [www.xniu.io,https://x.com/xniu_io]
-- **邮箱**: [knwin@msn.com]
-- **GitHub**: [https://github.com/knwins/trading]
+- **项目维护者**: [xniu.io](https://xniu.io)
+- **项目网址**: [www.xniu.io](https://xniu.io), [https://x.com/xniu_io](https://x.com/xniu_io)
+- **邮箱**: [knwin@msn.com](mailto:knwin@msn.com)
+- **GitHub**: [https://github.com/knwins/trading](https://github.com/knwins/trading)
 
 ## 🙏 致谢
 

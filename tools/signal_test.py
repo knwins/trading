@@ -6,9 +6,13 @@
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
-from data_loader import DataLoader
-from feature_engineer import FeatureEngineer
-from strategy import SharpeOptimizedStrategy
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from core.data_loader import DataLoader
+from core.feature_engineer import FeatureEngineer
+from core.strategy import SharpeOptimizedStrategy
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -106,8 +110,8 @@ def main():
     
     # 直接调用strategy.py中的calculate_signal方法
     try:
-        from strategy import SharpeOptimizedStrategy
-        from data_loader import DataLoader
+        from core.strategy import SharpeOptimizedStrategy
+        from core.data_loader import DataLoader
         from config import BACKTEST_CONFIG, TRADING_CONFIG
         
         # 初始化数据加载器
@@ -173,7 +177,7 @@ def main():
         print(f"✅ 成功加载 {len(data)} 条K线数据")
         
         # 执行特征工程
-        from feature_engineer import FeatureEngineer
+        from core.feature_engineer import FeatureEngineer
         feature_engineer = FeatureEngineer()
         data = feature_engineer.generate_features(data)
         

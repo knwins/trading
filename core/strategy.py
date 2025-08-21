@@ -5,7 +5,7 @@ import logging
 from datetime import datetime
 import warnings
 
-from feature_engineer import FeatureEngineer
+from .feature_engineer import FeatureEngineer
 warnings.filterwarnings('ignore')
 # 设置日志
 logger = logging.getLogger(__name__)
@@ -433,13 +433,14 @@ class SharpeOptimizedStrategy:
     根据市场表现自动调整仓位大小，提高风险调整后的收益
     """
     
-    def __init__(self, config=None, data_loader=None):
+    def __init__(self, config=None, data_loader=None, mode='realtime'):
         """
         初始化夏普优化策略
         
         Args:
             config: 配置字典，可覆盖默认参数
             data_loader: 数据加载器实例
+            mode: 运行模式，'realtime'表示实盘，'backtest'表示回测
         """
         # 从config.py导入统一配置
         try:
@@ -451,6 +452,38 @@ class SharpeOptimizedStrategy:
         
         # 合并用户配置
         self.config = self._deep_merge(default_config, config or {})
+        
+        # 保存运行模式
+        self.mode = mode
+        
+        # 初始化DeepSeek信号整合器
+        self.deepseek_integrator = None
+        if self.config.get('enable_deepseek_integration', False):
+            # 检查DeepSeek模式设置
+            deepseek_mode = self.config.get('deepseek_mode', 'realtime_only')
+            
+            # 根据模式决定是否启用DeepSeek整合
+            should_enable = False
+            if deepseek_mode == 'realtime_only':
+                # 仅实盘模式启用，回测时禁用
+                should_enable = (mode == 'realtime')
+            elif deepseek_mode == 'backtest_only':
+                # 仅回测模式启用
+                should_enable = (mode == 'backtest')
+            elif deepseek_mode == 'both':
+                # 两种模式都启用
+                should_enable = True
+            
+            if should_enable:
+                try:
+                    from deepseek.deepseek_signal_integrator import DeepSeekSignalIntegrator
+                    self.deepseek_integrator = DeepSeekSignalIntegrator(self.config)
+                    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ✅ DeepSeek信号整合器已启用 (运行模式: {mode}, 配置模式: {deepseek_mode})")
+                except Exception as e:
+                    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ⚠️ DeepSeek信号整合器初始化失败: {e}")
+                    self.deepseek_integrator = None
+            else:
+                print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ℹ️ DeepSeek信号整合器已禁用 (运行模式: {mode}, 配置模式: {deepseek_mode})")
         
         # 策略参数
         self.sharpe_lookback = self.config.get('sharpe_params', {}).get('sharpe_lookback', 30)
@@ -1928,6 +1961,28 @@ class SharpeOptimizedStrategy:
             # 调用内部的计算信号方法
             signal_info = self._calculate_signal(features, verbose, silent)
             
+            # 整合DeepSeek分析（如果启用）
+            if self.deepseek_integrator and self.deepseek_integrator.is_enabled():
+                try:
+                    deepseek_weight = self.config.get('deepseek_weight', 0.3)
+                    signal_info = self.deepseek_integrator.integrate_with_traditional_signal(
+                        signal_info, deepseek_weight
+                    )
+                    
+                    if verbose and signal_info.get('deepseek_status') == 'integrated':
+                        deepseek_analysis = signal_info.get('deepseek_analysis', {})
+                        print(f"🤖 DeepSeek: 评分={deepseek_analysis.get('deepseek_score', 0):.3f}, "
+                              f"方向={deepseek_analysis.get('signal_direction', 0)}, "
+                              f"强度={deepseek_analysis.get('signal_strength', 'unknown')}")
+                        print(f"🔀 整合: 权重={deepseek_weight:.1%}, "
+                              f"方法={signal_info.get('integration_method', 'unknown')}")
+                        
+                except Exception as e:
+                    if not silent:
+                        logger.warning(f"⚠️ DeepSeek信号整合失败: {e}")
+                    signal_info['deepseek_status'] = 'error'
+                    signal_info['deepseek_error'] = str(e)
+            
             if verbose:
                 # 简化输出，只显示关键信息
                 signal_type = "多头" if signal_info['signal'] == 1 else "空头" if signal_info['signal'] == -1 else "观望"
@@ -1958,7 +2013,7 @@ class SharpeOptimizedStrategy:
                         print(f"❌ 过滤器: {passed_filters}/{total_filters} 通过")
                         # 只显示失败的过滤器
                         for filter_name, filter_status in filters.items():
-                            if not filter_status['passed']:
+                            if filter_status['passed'] is False:
                                 print(f"   ❌ {filter_name}: {filter_status['reason']}")
             
             return signal_info

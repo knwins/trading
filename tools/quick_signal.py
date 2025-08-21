@@ -5,11 +5,15 @@
 
 import pandas as pd
 import numpy as np
+import sys
+import os
 from datetime import datetime, timedelta
 import warnings
-from data_loader import DataLoader
-from feature_engineer import FeatureEngineer
-from strategy import SharpeOptimizedStrategy
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from core.data_loader import DataLoader
+from core.feature_engineer import FeatureEngineer
+from core.strategy import SharpeOptimizedStrategy
 from config import *
 
 warnings.filterwarnings('ignore')
@@ -23,7 +27,7 @@ def quick_signal_check():
         data_loader = DataLoader()
         feature_engineer = FeatureEngineer()
         from config import OPTIMIZED_STRATEGY_CONFIG
-        strategy = SharpeOptimizedStrategy(config=OPTIMIZED_STRATEGY_CONFIG, data_loader=data_loader)
+        strategy = SharpeOptimizedStrategy(config=OPTIMIZED_STRATEGY_CONFIG, data_loader=data_loader, mode='realtime')
         
         # 获取最近数据
         end_time = datetime.now()
@@ -76,7 +80,7 @@ def quick_signal_check():
         filters = signal_info.get('filters', {})
         if filters:
             signal_filter = filters.get('signal_filter', {})
-            if not signal_filter.get('passed', True):
+            if signal_filter.get('passed', True) is False:
                 print(f"🔍 被过滤: {signal_filter.get('reason', 'N/A')}")
         
         # 技术指标

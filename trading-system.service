@@ -10,8 +10,8 @@ WorkingDirectory=/opt/trading
 ExecStart=/opt/trading/venv/bin/python /opt/trading/trading.py --mode service
 Restart=always
 RestartSec=10
-StandardOutput=journal
-StandardError=journal
+StandardOutput=append:/opt/trading/logs/trading-service.log
+StandardError=append:/opt/trading/logs/trading-service.log
 
 # 环境变量
 Environment=PYTHONPATH=/opt/trading

@@ -4,12 +4,12 @@ import os
 import json
 import logging
 from dotenv import load_dotenv
-from data_loader import DataLoader
-from feature_engineer import FeatureEngineer
-from strategy import (
+from core.data_loader import DataLoader
+from core.feature_engineer import FeatureEngineer
+from core.strategy import (
     SharpeOptimizedStrategy
 )
-from backtester import Backtester
+from core.backtester import Backtester
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import pandas as pd
@@ -120,9 +120,15 @@ def setup_logging():
 # 初始化日志（将在主函数中调用）
 logger = None
 
-# 设置中文字体支持
-plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'DejaVu Sans']
-plt.rcParams['axes.unicode_minus'] = False
+# 设置中文字体支持 - 修复matplotlib字体识别问题
+try:
+    from utils.fix_matplotlib_fonts import force_add_fonts, configure_fonts
+    force_add_fonts()
+    configure_fonts()
+except ImportError:
+    # 备用方案
+    plt.rcParams['font.sans-serif'] = ['WenQuanYi Micro Hei', 'WenQuanYi Zen Hei', 'SimHei', 'Microsoft YaHei', 'DejaVu Sans']
+    plt.rcParams['axes.unicode_minus'] = False
 
 def run_comprehensive_backtest():
     """运行完整的策略回测系统，仅使用真实历史数据"""
@@ -442,8 +448,8 @@ def run_single_strategy_backtest(strategy_class, strategy_params, strategy_name,
         # 创建数据加载器实例
         data_loader = DataLoader()
         
-        # 创建策略实例，传入data_loader
-        strategy_instance = strategy_class(config=OPTIMIZED_STRATEGY_CONFIG, data_loader=data_loader)
+        # 创建策略实例，传入data_loader和回测模式
+        strategy_instance = strategy_class(config=OPTIMIZED_STRATEGY_CONFIG, data_loader=data_loader, mode='backtest')
         
         # 设置策略的时间级别（用于冷却处理时间计算）
         if hasattr(strategy_instance, 'set_timeframe'):
@@ -451,7 +457,7 @@ def run_single_strategy_backtest(strategy_class, strategy_params, strategy_name,
         
         # 创建回测器
         backtester = Backtester()
-        backtester.strategy = strategy_instance
+        backtester.set_strategy(strategy_instance)
         
         # 执行回测
         result = backtester.run_backtest(features, timeframe)

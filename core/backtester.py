@@ -75,6 +75,9 @@ class Backtester:
         # ===== 止损和风险控制 =====
         self.high_point = 0  # 持仓期间最高点
         self.low_point = float('inf')  # 持仓期间最低点
+        
+        # ===== 策略实例 =====
+        self.strategy = None
      
     
     def calculate_position_value(self, current_price=None):
@@ -100,6 +103,16 @@ class Backtester:
             current_value = self.position_value * (self.entry_price / current_price)
         
         return current_value
+    
+    def set_strategy(self, strategy):
+        """
+        设置策略实例
+        
+        Args:
+            strategy: 策略实例
+        """
+        self.strategy = strategy
+        print(f"✅ 策略已设置: {strategy.__class__.__name__}")
     
     # 仓位管理已移至策略内部，不再需要此方法
     
@@ -185,11 +198,11 @@ class Backtester:
             
             # 检查是否有评分信息
             if 'signal_score' in signal_info:
-                details_parts.append(f"综合评分{signal_info['signal_score']:.2f}")
+                details_parts.append(f"SignalScore{signal_info['signal_score']:.2f}")
             if 'base_score' in signal_info:
-                details_parts.append(f"基础评分{signal_info['base_score']:.2f}")
+                details_parts.append(f"BaseScore{signal_info['base_score']:.2f}")
             if 'trend_score' in signal_info:
-                details_parts.append(f"趋势评分{signal_info['trend_score']:.2f}")
+                details_parts.append(f"TrendScore{signal_info['trend_score']:.2f}")
             
             
             # 添加技术指标信息
@@ -492,7 +505,7 @@ class Backtester:
                     # 使用策略的开仓检查方法
                     if hasattr(self.strategy, 'should_open_position'):
                         should_open = self.strategy.should_open_position(signal, enhanced_row, current_time)
-                        if not should_open:
+                        if should_open is False:
                             continue
 
                     

@@ -70,7 +70,7 @@ PERIOD_CONFIG = {
 LOGGING_CONFIG = {
     'LEVEL': 'INFO',  # 改回INFO级别，减少日志输出
     'CONSOLE_OUTPUT': True,
-    'FILE_OUTPUT': True,
+    'FILE_OUTPUT': False,  # 关闭文件输出，避免生成单独的日志文件
     'LOG_DIR': 'logs',
 }
 
@@ -244,4 +244,23 @@ OPTIMIZED_STRATEGY_CONFIG = {
             }
         }
     },
+    
+    # DeepSeek AI信号整合配置
+    'enable_deepseek_integration': True,  # 是否启用DeepSeek AI信号整合
+    'deepseek_mode': 'realtime_only',      # 模式: 'realtime_only'(仅实盘), 'backtest_only'(仅回测), 'both'(都启用)
+    'deepseek_weight': 0.6,                # DeepSeek信号权重 (0-1)
+    'deepseek_weights': {
+        'trend_score_weight': 0.25,        # 趋势评分权重
+        'indicator_score_weight': 0.25,    # 指标评分权重
+        'sentiment_score_weight': 0.15,    # 市场情绪权重
+        'overall_score_weight': 0.35       # 综合评分权重
+    },
+    'deepseek_thresholds': {
+        'strong_bullish': 0.7,             # 强看涨阈值
+        'bullish': 0.6,                    # 看涨阈值
+        'neutral': 0.5,                    # 中性阈值
+        'bearish': 0.4,                    # 看跌阈值
+        'strong_bearish': 0.3              # 强看跌阈值
+    },
+    'cache_timeout': 300,                  # 缓存超时时间(秒)
 }

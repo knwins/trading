@@ -5,12 +5,16 @@
 
 import pandas as pd
 import numpy as np
+import sys
+import os
 from datetime import datetime, timedelta
 import time
 import warnings
-from data_loader import DataLoader
-from feature_engineer import FeatureEngineer
-from strategy import SharpeOptimizedStrategy
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from core.data_loader import DataLoader
+from core.feature_engineer import FeatureEngineer
+from core.strategy import SharpeOptimizedStrategy
 from config import *
 
 warnings.filterwarnings('ignore')
@@ -37,13 +41,13 @@ class SignalMonitor:
             # 获取K线数据
             data = self.data_loader.get_klines(start_date_str, end_date_str)
             
-            if data is None or data.empty:
+            if data is None or (hasattr(data, 'empty') and data.empty):
                 return None, None
             
             # 特征工程
             features = self.feature_engineer.generate_features(data)
             
-            if features is None or features.empty:
+            if features is None or (hasattr(features, 'empty') and features.empty):
                 return None, None
             
             # 计算信号
@@ -57,11 +61,18 @@ class SignalMonitor:
     
     def display_signal(self, signal_info, current_data, iteration):
         """显示信号信息"""
-        if not signal_info:
+        if signal_info is None:
             return
         
         current_time = datetime.now()
-        current_price = current_data.get('close', 0)
+        # 安全获取价格数据
+        try:
+            if hasattr(current_data, 'get'):
+                current_price = current_data.get('close', 0)
+            else:
+                current_price = getattr(current_data, 'close', 0)
+        except:
+            current_price = 0
         signal = signal_info.get('signal', 0)
         
         # 信号类型
@@ -81,7 +92,7 @@ class SignalMonitor:
         filters = signal_info.get('filters', {})
         if filters:
             signal_filter = filters.get('signal_filter', {})
-            if not signal_filter.get('passed', True):
+            if signal_filter.get('passed', True) is False:
                 print(f"🔍 过滤: {signal_filter.get('reason', 'N/A')}")
         
         # 记录信号历史
@@ -101,7 +112,7 @@ class SignalMonitor:
     
     def print_summary(self):
         """打印摘要"""
-        if not self.signal_history:
+        if len(self.signal_history) == 0:
             return
         
         print("\n" + "="*60)
@@ -149,7 +160,7 @@ def main():
             # 获取信号
             signal_info, current_data = monitor.get_current_signal()
             
-            if signal_info:
+            if signal_info is not None:
                 monitor.display_signal(signal_info, current_data, iteration)
             else:
                 print(f"\n[{datetime.now().strftime('%H:%M:%S')}] 第{iteration}次检查 - ❌ 无法获取信号")
