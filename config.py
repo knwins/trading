@@ -264,3 +264,22 @@ OPTIMIZED_STRATEGY_CONFIG = {
     },
     'cache_timeout': 300,                  # 缓存超时时间(秒)
 }
+
+# ============================================================================
+# Telegram通知配置
+# ============================================================================
+TELEGRAM_CONFIG = {
+    'BOT_TOKEN': '',                       # Telegram Bot Token (从环境变量或手动设置)
+    'CHAT_ID': '',                         # Telegram Chat ID (从环境变量或手动设置)
+    'ENABLED': True,                       # 是否启用Telegram通知
+    'NOTIFICATION_TYPES': {
+        'SIGNALS': True,                   # 交易信号通知
+        'TRADES': True,                    # 交易执行通知
+        'ERRORS': True,                    # 错误通知
+        'STATUS': True,                    # 状态通知
+    },
+    'MESSAGE_FORMAT': {
+        'PARSE_MODE': 'HTML',              # 消息格式: HTML 或 Markdown
+        'DISABLE_WEB_PREVIEW': True,       # 禁用网页预览
+    }
+}
